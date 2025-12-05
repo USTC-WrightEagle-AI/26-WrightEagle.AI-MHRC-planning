@@ -38,11 +38,13 @@ class LLMClient:
         self.max_tokens = config.get("max_tokens", 512)
         self.timeout = config.get("timeout", 30)
 
-        # 初始化OpenAI客户端
+        # 初始化OpenAI客户端（禁用代理以避免SOCKS问题）
+        import httpx
         self.client = OpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
-            timeout=self.timeout
+            timeout=self.timeout,
+            http_client=httpx.Client(proxies=None)  # 禁用代理
         )
 
         print(f"✓ LLM Client 初始化成功")
@@ -206,11 +208,13 @@ class AsyncLLMClient:
         self.max_tokens = config.get("max_tokens", 512)
         self.timeout = config.get("timeout", 30)
 
-        # 初始化异步OpenAI客户端
+        # 初始化异步OpenAI客户端（禁用代理以避免SOCKS问题）
+        import httpx
         self.client = AsyncOpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
-            timeout=self.timeout
+            timeout=self.timeout,
+            http_client=httpx.AsyncClient(proxies=None)  # 禁用代理
         )
 
         print(f"✓ Async LLM Client 初始化成功")
