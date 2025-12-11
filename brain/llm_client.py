@@ -44,7 +44,7 @@ class LLMClient:
             base_url=self.base_url,
             api_key=self.api_key,
             timeout=self.timeout,
-            http_client=httpx.Client(proxies=None)  # 禁用代理
+            http_client=httpx.Client(trust_env=False)  # 禁用代理
         )
 
         print(f"✓ LLM Client 初始化成功")
@@ -214,7 +214,7 @@ class AsyncLLMClient:
             base_url=self.base_url,
             api_key=self.api_key,
             timeout=self.timeout,
-            http_client=httpx.AsyncClient(proxies=None)  # 禁用代理
+            http_client=httpx.AsyncClient(trust_env=False)  # 禁用代理
         )
 
         print(f"✓ Async LLM Client 初始化成功")
