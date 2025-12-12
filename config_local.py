@@ -9,8 +9,8 @@
 from config import RunMode
 
 # ==================== 运行模式 ====================
-MODE = RunMode.CLOUD  # 云端API
-# MODE = RunMode.LOCAL  # 本地Ollama
+# MODE = RunMode.CLOUD  # 云端API
+MODE = RunMode.LOCAL  # 本地Ollama
 
 # ==================== 云端配置 ====================
 
@@ -35,9 +35,9 @@ CLOUD_MODEL = "deepseek-chat"
 # 如果使用本地 Ollama，无需修改以下配置
 LOCAL_BASE_URL = "http://localhost:11434/v1"
 LOCAL_API_KEY = "ollama"
-LOCAL_MODEL = "qwen2.5:3b"
+LOCAL_MODEL = "qwen3:8b"
 
 # ==================== 其他配置 ====================
 TEMPERATURE = 0.7
-MAX_TOKENS = 512
+MAX_TOKENS = 1024
 ROBOT_NAME = "LARA"
