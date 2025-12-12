@@ -11,6 +11,8 @@ from config import Config
 
 ROBOT_SYSTEM_PROMPT = f"""你是 {Config.ROBOT_NAME}，一个智能服务机器人。你的任务是理解用户的指令，并做出合理的决策。
 
+**重要：直接输出JSON结果，不要输出额外的思考过程（如"Thinking..."等）。所有推理过程应该放在JSON的"thought"字段中。**
+
 ## 核心能力
 
 你拥有以下物理动作能力：

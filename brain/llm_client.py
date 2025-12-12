@@ -56,7 +56,8 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        enable_thinking: bool = False
     ) -> str:
         """
         调用LLM进行对话
@@ -65,10 +66,17 @@ class LLMClient:
             messages: 消息列表，格式为 [{"role": "user", "content": "..."}]
             temperature: 温度系数（覆盖默认值）
             max_tokens: 最大token数（覆盖默认值）
+            enable_thinking: 是否启用思考模式（仅 Qwen3 支持）
 
         Returns:
             str: LLM的回复文本
         """
+        # 为 Qwen3 添加 /no_think 标记以禁用思考模式
+        if not enable_thinking and "qwen3" in self.model.lower():
+            # 在最后一条用户消息后添加 /no_think
+            if messages and messages[-1].get("role") == "user":
+                messages[-1]["content"] = messages[-1]["content"] + " /no_think"
+
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -225,9 +233,16 @@ class AsyncLLMClient:
         self,
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        enable_thinking: bool = False
     ) -> str:
         """异步聊天"""
+        # 为 Qwen3 添加 /no_think 标记以禁用思考模式
+        if not enable_thinking and "qwen3" in self.model.lower():
+            # 在最后一条用户消息后添加 /no_think
+            if messages and messages[-1].get("role") == "user":
+                messages[-1]["content"] = messages[-1]["content"] + " /no_think"
+
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
