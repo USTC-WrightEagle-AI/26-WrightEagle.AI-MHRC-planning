@@ -117,7 +117,10 @@ class LLMClient:
 
         # 添加当前用户输入
         messages.append({"role": "user", "content": user_input})
-
+        messages.append({
+            "role": "assistant",
+                    "content": "<think>\n\n</think>\n\n"
+        })
         # 重试机制
         last_error = None
         for attempt in range(max_retries):
