@@ -53,20 +53,20 @@ ollama pull qwen2.5:3b
 
 ```bash
 # 运行基础模块测试（不需要API）
-python tests/test_basic.py
+python3 tests/test_basic.py
 
 # 运行端到端测试（需要API）
-python main.py --test
+python3 src/main.py --test
 
 # 运行演示
-python main.py --demo
+python3 src/main.py --demo
 ```
 
 ## 第四步：交互式使用
 
 ```bash
 # 启动交互模式
-python main.py
+python3 src/main.py
 
 # 然后你可以输入：
 # "你好"
@@ -81,19 +81,22 @@ python main.py
 
 ```
 CADE/
-├── brain/              # 🧠 大脑模块
-│   ├── llm_client.py   # LLM 调用客户端
-│   ├── prompts.py      # 系统提示词
-│   └── schemas.py      # 数据模型（动作定义）
-├── body/               # 🦾 躯干模块
-│   ├── robot_interface.py  # 机器人接口
-│   └── mock_robot.py   # Mock 实现
+├── src/                # 源代码
+│   ├── main.py         # 🚀 入口程序
+│   ├── robot_controller.py # 🎮 主控制器
+│   ├── config.py       # ⚙️ 配置（默认值）
+│   ├── config_local.py # ⚙️ 本地配置（你的密钥）
+│   ├── brain/          # 🧠 大脑模块
+│   │   ├── llm_client.py   # LLM 调用客户端
+│   │   ├── prompts.py      # 系统提示词
+│   │   └── schemas.py      # 数据模型（动作定义）
+│   └── body/           # 🦾 躯干模块
+│       ├── robot_interface.py  # 机器人接口
+│       └── mock_robot.py   # Mock 实现
 ├── tests/              # 🧪 测试
 │   └── test_basic.py
-├── config.py           # ⚙️ 配置（默认值）
-├── config_local.py     # ⚙️ 本地配置（你的密钥）
-├── robot_controller.py # 🎮 主控制器
-└── main.py             # 🚀 入口程序
+├── docs/               # 📚 文档
+└── demos/              # 🎬 演示程序
 ```
 
 ## 常见问题

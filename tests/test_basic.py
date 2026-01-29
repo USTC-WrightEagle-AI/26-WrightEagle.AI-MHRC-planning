@@ -7,14 +7,16 @@
 import sys
 import os
 
-# 添加项目根目录到路径
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 添加项目根目录和 src 目录到路径
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.join(project_root, 'src'))
 
 
 def test_config():
     """测试配置模块"""
     print("=== 测试 Config ===")
-    from config import Config
+    from src.config import Config
 
     config = Config.get_llm_config()
     assert "base_url" in config
@@ -29,7 +31,7 @@ def test_config():
 def test_schemas():
     """测试数据模型"""
     print("=== 测试 Schemas ===")
-    from brain.schemas import (
+    from src.brain.schemas import (
         NavigateAction, SearchAction, RobotDecision, parse_action
     )
 
@@ -62,8 +64,8 @@ def test_schemas():
 def test_mock_robot():
     """测试Mock Robot"""
     print("=== 测试 Mock Robot ===")
-    from body.mock_robot import MockRobot
-    from body.robot_interface import RobotState
+    from src.body.mock_robot import MockRobot
+    from src.body.robot_interface import RobotState
 
     robot = MockRobot(name="TestBot")
 
@@ -88,7 +90,7 @@ def test_mock_robot():
 def test_prompts():
     """测试提示词"""
     print("=== 测试 Prompts ===")
-    from brain.prompts import get_system_prompt, add_context
+    from src.brain.prompts import get_system_prompt, add_context
 
     # 测试获取提示词
     prompt = get_system_prompt("default")

@@ -5,6 +5,14 @@
 模拟 LLM 第一次输出错误，第二次输出正确的过程
 """
 
+import sys
+import os
+
+# 添加项目根目录和 src 目录到路径
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.join(project_root, 'src'))
+
 import json
 from brain.schemas import RobotDecision, parse_action
 

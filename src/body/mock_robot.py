@@ -8,7 +8,7 @@ Mock Robot - 模拟机器人
 import time
 import random
 from typing import Optional, List
-from body.robot_interface import RobotInterface, RobotState
+from .robot_interface import RobotInterface, RobotState
 
 
 class MockRobot(RobotInterface):

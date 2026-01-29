@@ -7,6 +7,12 @@
 3. config_local.py 会自动覆盖 config.py 中的默认值
 """
 
+import sys
+import os
+
+# 添加 src 目录到路径（如果从根目录导入此配置）
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
 from config import RunMode
 
 # ==================== 运行模式 ====================

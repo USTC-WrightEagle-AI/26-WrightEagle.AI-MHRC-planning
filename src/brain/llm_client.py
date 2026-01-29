@@ -8,7 +8,7 @@ import json
 from typing import Optional, List, Dict, Any
 from openai import OpenAI, AsyncOpenAI
 from config import Config
-from brain.schemas import RobotDecision, parse_action
+from .schemas import RobotDecision, parse_action
 
 
 class LLMClient:
