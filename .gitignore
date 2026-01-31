@@ -18,7 +18,7 @@ config_local.py
 *.swp
 *.swo
 
-# 配置文件（包含API密钥）
+# configuration files
 config.local.py
 .env
 

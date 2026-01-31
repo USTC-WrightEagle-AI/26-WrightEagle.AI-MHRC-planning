@@ -1,7 +1,7 @@
 """
-配置抽象层 - Configuration Layer
+Configuration Layer
 
-支持云端(CLOUD)和本地(LOCAL)模式无缝切换
+Supports seamless switching between Cloud and Local modes
 """
 
 from enum import Enum
@@ -9,59 +9,59 @@ from typing import Literal
 
 
 class RunMode(str, Enum):
-    """运行模式"""
-    CLOUD = "CLOUD"  # 云端API（当前PC开发）
-    LOCAL = "LOCAL"  # 本地Ollama（未来Orin部署）
+    """Run mode"""
+    CLOUD = "CLOUD"  # Cloud API (current PC development)
+    LOCAL = "LOCAL"  # Local Ollama (future Orin deployment)
 
 
 class Config:
     """
-    全局配置类
+    Global configuration class
 
-    使用方法：
-    1. 开发阶段：保持 MODE = RunMode.CLOUD，配置云端API
-    2. 部署阶段：改为 MODE = RunMode.LOCAL，无需修改其他代码
+    Usage:
+    1. Development stage: Keep MODE = RunMode.CLOUD, configure cloud API
+    2. Deployment stage: Change to MODE = RunMode.LOCAL, no need to modify other code
     """
 
-    # ==================== 运行模式 ====================
+    # ==================== Run Mode ====================
     MODE: RunMode = RunMode.CLOUD
 
-    # ==================== 云端配置 ====================
-    # DeepSeek API (推荐，性价比高)
+    # ==================== Cloud Configuration ====================
+    # DeepSeek API (Recommended, cost-effective)
     CLOUD_BASE_URL = "https://api.deepseek.com"
-    CLOUD_API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的API Key
+    CLOUD_API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # Replace with your API Key
     CLOUD_MODEL = "deepseek-chat"
 
-    # 阿里 DashScope (可选)
+    # Alibaba DashScope (Optional)
     # CLOUD_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     # CLOUD_API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     # CLOUD_MODEL = "qwen-turbo"
 
-    # ==================== 本地配置 ====================
+    # ==================== Local Configuration ====================
     LOCAL_BASE_URL = "http://localhost:11434/v1"
-    LOCAL_API_KEY = "ollama"  # Ollama不需要真实key
-    LOCAL_MODEL = "qwen2.5:3b"  # 推荐3B量化版本
+    LOCAL_API_KEY = "ollama"  # Ollama doesn't need real key
+    LOCAL_MODEL = "qwen2.5:3b"  # Recommended 3B quantized version
 
-    # ==================== LLM 参数 ====================
-    TEMPERATURE = 0.7  # 温度系数（0-1，越高越随机）
-    MAX_TOKENS = 512  # 最大生成长度
-    TIMEOUT = 30  # 请求超时时间（秒）
+    # ==================== LLM Parameters ====================
+    TEMPERATURE = 0.7  # Temperature coefficient (0-1, higher = more random)
+    MAX_TOKENS = 512  # Maximum generation length
+    TIMEOUT = 30  # Request timeout (seconds)
 
-    # ==================== 机器人配置 ====================
+    # ==================== Robot Configuration ====================
     ROBOT_NAME = "LARA"
-    ENABLE_MOCK = True  # True=Mock模式，False=真实ROS
+    ENABLE_MOCK = True  # True=Mock mode, False=Real ROS
 
-    # ==================== 日志配置 ====================
+    # ==================== Logging Configuration ====================
     LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
     LOG_FILE = "logs/robot.log"
 
     @classmethod
     def get_llm_config(cls) -> dict:
         """
-        获取当前模式下的LLM配置
+        Get LLM configuration for current mode
 
         Returns:
-            dict: 包含 base_url, api_key, model 的配置字典
+            dict: Configuration dictionary containing base_url, api_key, model
         """
         if cls.MODE == RunMode.CLOUD:
             return {
@@ -84,27 +84,27 @@ class Config:
 
     @classmethod
     def is_cloud_mode(cls) -> bool:
-        """判断是否为云端模式"""
+        """Check if in cloud mode"""
         return cls.MODE == RunMode.CLOUD
 
     @classmethod
     def is_local_mode(cls) -> bool:
-        """判断是否为本地模式"""
+        """Check if in local mode"""
         return cls.MODE == RunMode.LOCAL
 
 
-# 尝试导入本地配置（用于覆盖默认值，不提交到git）
+# Try to import local configuration (for overriding defaults, not committed to git)
 try:
     import config_local
 
-    # 动态更新 Config 类的属性
+    # Dynamically update Config class attributes
     for attr in dir(config_local):
-        if not attr.startswith('_'):  # 跳过私有属性
+        if not attr.startswith('_'):  # skip private attributes
             value = getattr(config_local, attr)
             if hasattr(Config, attr):
                 setattr(Config, attr, value)
 
-    print("✓ 已加载本地配置 config_local.py")
+    print("✓ Loaded local configuration config_local.py")
 except ImportError:
-    print("⚠ 未找到 config_local.py，使用默认配置")
-    print("提示：复制 config.py 为 config_local.py 并填入你的API密钥")
+    print("⚠ config_local.py not found, using default configuration")
+    print("Tip: copy config.py to config_local.py and fill in your API key")

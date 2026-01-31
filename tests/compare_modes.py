@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-对比测试：标准模式 vs 精简模式
+Comparison test: standard mode vs compact mode
 
-测试 DeepSeek 是否真的不生成 thought 字段
+Test whether DeepSeek really does not generate the `thought` field
 """
 
 import sys
 import os
 
-# 添加项目根目录和 src 目录到路径
+# Add project root and src directory to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, 'src'))
@@ -18,12 +18,12 @@ from robot_controller import RobotController
 
 
 def test_mode(mode_name: str, prompt_mode: str, show_thought: bool = True):
-    """测试指定模式"""
+    """Test a specified mode"""
 
     print("="*70)
-    print(f"🧪 测试模式: {mode_name}")
+    print(f"🧪 Testing mode: {mode_name}")
     print(f"   Prompt: {prompt_mode}")
-    print(f"   显示思考: {show_thought}")
+    print(f"   Show thought: {show_thought}")
     print("="*70)
 
     controller = RobotController(
@@ -32,9 +32,9 @@ def test_mode(mode_name: str, prompt_mode: str, show_thought: bool = True):
     )
 
     test_inputs = [
-        "你好",
-        "去厨房",
-        "找到苹果",
+        "Hello",
+        "Go to the kitchen",
+        "Find an apple",
     ]
 
     total_time = 0
@@ -45,70 +45,70 @@ def test_mode(mode_name: str, prompt_mode: str, show_thought: bool = True):
 
         total_time += elapsed
 
-        # 检查是否生成了 thought
+        # Check whether thought is generated
         has_thought = decision.thought is not None
-        thought_info = "✅ 有" if has_thought else "❌ 无"
+        thought_info = "✅ Present" if has_thought else "❌ Absent"
 
-        print(f"\n📊 结果分析:")
-        print(f"   thought 字段: {thought_info}")
+        print(f"\n📊 Result analysis:")
+        print(f"   thought field: {thought_info}")
         if has_thought:
-            print(f"   thought 长度: {len(decision.thought)} 字符")
-        print(f"   耗时: {elapsed:.2f}s")
+            print(f"   thought length: {len(decision.thought)} characters")
+        print(f"   Elapsed: {elapsed:.2f}s")
         print()
 
-    print(f"\n⏱️  总耗时: {total_time:.2f}s")
-    print(f"📊 平均耗时: {total_time/len(test_inputs):.2f}s/次")
+    print(f"\n⏱️  Total time: {total_time:.2f}s")
+    print(f"📊 Average time: {total_time/len(test_inputs):.2f}s per input")
 
     return total_time
 
 
 def main():
-    """主函数 - 对比测试"""
+    """Main function - comparison test"""
 
     print("\n" + "🎯"*35)
-    print("对比测试：标准模式 vs 精简模式")
+    print("Comparison test: standard mode vs compact mode")
     print("🎯"*35 + "\n")
 
-    # 测试1：标准模式（default）
+    # Test 1: standard mode (default)
     time1 = test_mode(
-        mode_name="标准模式（包含思考）",
+        mode_name="Standard mode (with thought)",
         prompt_mode="default",
         show_thought=True
     )
 
-    input("\n按 Enter 继续下一个测试...")
+    input("\nPress Enter to continue to the next test...")
 
-    # 测试2：精简模式（compact）
+    # Test 2: compact mode (no thought)
     time2 = test_mode(
-        mode_name="精简模式（无思考）",
+        mode_name="Compact mode (no thought)",
         prompt_mode="compact",
         show_thought=False
     )
 
-    # 对比结果
+    # Compare results
     print("\n\n" + "="*70)
-    print("📊 对比结果")
+    print("📊 Comparison results")
     print("="*70)
 
-    print(f"\n标准模式总耗时: {time1:.2f}s")
-    print(f"精简模式总耗时: {time2:.2f}s")
-    print(f"时间差: {abs(time1-time2):.2f}s")
+    print(f"\nStandard mode total time: {time1:.2f}s")
+    print(f"Compact mode total time: {time2:.2f}s")
+    print(f"Time difference: {abs(time1-time2):.2f}s")
 
     if time2 < time1:
         speedup = ((time1 - time2) / time1) * 100
-        print(f"⚡ 精简模式快了 {speedup:.1f}%")
+        print(f"⚡ Compact mode is faster by {speedup:.1f}%")
     else:
         slowdown = ((time2 - time1) / time1) * 100
-        print(f"⚠️  精简模式慢了 {slowdown:.1f}%")
+        print(f"⚠️  Compact mode is slower by {slowdown:.1f}%")
 
-    print("\n💡 观察重点:")
-    print("   1. 精简模式的 LLM 输出中是否真的没有 thought 字段？")
-    print("   2. 精简模式是否节省了推理时间？")
-    print("   3. 精简模式的动作执行是否同样准确？")
+    print("\n💡 Key observations:")
+    print("   1. Does the LLM output in compact mode truly lack the thought field?")
+    print("   2. Does compact mode save inference time?")
+    print("   3. Are actions executed with the same accuracy in compact mode?")
 
-    print("\n📖 查看详细分析:")
-    print("   - LLM 原始输出在 '📄 LLM 原始输出' 部分")
-    print("   - thought 字段状态在 '📊 结果分析' 部分")
+    print("\n📖 For detailed analysis:")
+    print("   - Raw LLM output is in the '📄 LLM raw output' section")
+    print("   - thought field status is in the '📊 Result analysis' section")
 
 
 if __name__ == "__main__":
@@ -117,11 +117,11 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         mode = sys.argv[1]
         if mode == "default":
-            test_mode("标准模式", "default", True)
+            test_mode("Standard mode", "default", True)
         elif mode == "compact":
-            test_mode("精简模式", "compact", False)
+            test_mode("Compact mode", "compact", False)
         else:
-            print(f"未知模式: {mode}")
-            print("用法: python compare_modes.py [default|compact]")
+            print(f"Unknown mode: {mode}")
+            print("Usage: python compare_modes.py [default|compact]")
     else:
         main()

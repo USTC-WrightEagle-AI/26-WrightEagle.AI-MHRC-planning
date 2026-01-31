@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-测试 DeepSeek 的"无思考"模式性能
+Test DeepSeek's "no-thought" mode performance
 
-对比显示/不显示思考过程的输出差异
+Compare outputs with/without showing the thought process
 """
 
 import sys
 import os
 
-# 添加项目根目录和 src 目录到路径
-project_root = os.path.dirname(os.path.abspath(__file__))
+# Add project root and src directory to path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, 'src'))
 
@@ -17,17 +17,17 @@ from robot_controller import RobotController
 
 
 def test_with_thought():
-    """标准模式 - 显示思考过程"""
+    """Standard mode - show thought process"""
     print("="*70)
-    print("🧠 标准模式：显示思考过程")
+    print("🧠 Standard mode: show thought process")
     print("="*70)
 
     controller = RobotController(show_thought=True)
 
     test_inputs = [
-        "你好",
-        "去厨房",
-        "找到苹果"
+        "Hello",
+        "Go to the kitchen",
+        "Find an apple"
     ]
 
     for user_input in test_inputs:
@@ -36,17 +36,17 @@ def test_with_thought():
 
 
 def test_without_thought():
-    """无思考模式 - 不显示思考过程"""
+    """No-thought mode - hide thought process"""
     print("\n\n" + "="*70)
-    print("⚡ 无思考模式：不显示思考过程")
+    print("⚡ No-thought mode: hide thought process")
     print("="*70)
 
     controller = RobotController(show_thought=False)
 
     test_inputs = [
-        "你好",
-        "去厨房",
-        "找到苹果"
+        "Hello",
+        "Go to the kitchen",
+        "Find an apple"
     ]
 
     for user_input in test_inputs:
@@ -55,33 +55,33 @@ def test_without_thought():
 
 
 def compare():
-    """对比说明"""
+    """Comparison notes"""
     print("\n\n" + "="*70)
-    print("📊 对比说明")
+    print("📊 Comparison notes")
     print("="*70)
 
     print("""
-标准模式（show_thought=True）输出：
-  ✅ 💭 思考过程: ...
-  ✅ 💬 回复: ...
-  ✅ ⚡ 计划动作: ...
-  ✅ 🤖 执行动作
+Standard mode (show_thought=True) output:
+  ✅ 💭 Thought: ...
+  ✅ 💬 Reply: ...
+  ✅ ⚡ Planned action: ...
+  ✅ 🤖 Execute action
 
-无思考模式（show_thought=False）输出：
-  ❌ 💭 思考过程: ...（不显示）
-  ✅ 💬 回复: ...
-  ✅ ⚡ 计划动作: ...
-  ✅ 🤖 执行动作
+No-thought mode (show_thought=False) output:
+  ❌ 💭 Thought: ... (hidden)
+  ✅ 💬 Reply: ...
+  ✅ ⚡ Planned action: ...
+  ✅ 🤖 Execute action
 
-注意：
-  • LLM 仍然会生成 thought 字段（遵循 Prompt）
-  • 只是在显示时被隐藏了
-  • 适合：
-    - 生产环境（用户不需要看到机器人的"内心独白"）
-    - 演示展示（更简洁的输出）
-    - 性能测试（减少终端输出）
+Notes:
+  • The LLM still generates a 'thought' field (per the prompt)
+  • It is only hidden from display
+  • Suitable for:
+    - Production (users don't need to see the agent's internal monologue)
+    - Demos (cleaner output)
+    - Performance tests (less terminal output)
 
-如果想让 LLM 完全不生成 thought，需要修改 Schema 和 Prompt（见方案2）
+If you want the LLM to not generate 'thought' at all, you need to modify the schema and prompt (see option 2)
     """)
 
 
@@ -94,10 +94,10 @@ if __name__ == "__main__":
         elif sys.argv[1] == "without":
             test_without_thought()
         else:
-            print("用法: python test_no_thought.py [with|without]")
+            print("Usage: python test_no_thought.py [with|without]")
     else:
-        print("🎬 完整对比测试\n")
+        print("🎬 Full comparison test\n")
         compare()
-        print("\n运行示例:")
-        print("  python test_no_thought.py with      # 只测试标准模式")
-        print("  python test_no_thought.py without   # 只测试无思考模式")
+        print("\nExamples:")
+        print("  python test_no_thought.py with      # test only standard mode")
+        print("  python test_no_thought.py without   # test only no-thought mode")

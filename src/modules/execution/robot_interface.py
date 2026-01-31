@@ -1,7 +1,7 @@
 """
-Robot Interface - 机器人接口定义
+Robot Interface
 
-定义统一的机器人抽象接口，Mock和Real类都需要实现这个接口
+Defines unified robot abstract interface, both Mock and Real classes must implement this interface
 """
 
 from abc import ABC, abstractmethod
@@ -10,18 +10,18 @@ from enum import Enum
 
 
 class RobotState(str, Enum):
-    """机器人状态"""
-    IDLE = "IDLE"              # 空闲
-    THINKING = "THINKING"      # 思考中（LLM推理）
-    EXECUTING = "EXECUTING"    # 执行中
-    ERROR = "ERROR"            # 错误状态
+    """Robot state"""
+    IDLE = "IDLE"              # Idle
+    THINKING = "THINKING"      # Thinking (LLM reasoning)
+    EXECUTING = "EXECUTING"    # Executing
+    ERROR = "ERROR"            # Error state
 
 
 class RobotInterface(ABC):
     """
-    机器人抽象接口
+    Robot abstract interface
 
-    所有机器人类（Mock/Real）都必须实现这些方法
+    All robot classes (Mock/Real) must implement these methods
     """
 
     def __init__(self):
@@ -32,87 +32,87 @@ class RobotInterface(ABC):
     @abstractmethod
     def navigate(self, target) -> bool:
         """
-        导航到目标位置
+        Navigate to target location
 
         Args:
-            target: 目标位置（语义标签或坐标）
+            target: Target location (semantic label or coordinates)
 
         Returns:
-            bool: 是否成功
+            bool: Whether successful
         """
         pass
 
     @abstractmethod
     def search(self, object_name: str) -> Optional[dict]:
         """
-        搜索物体
+        Search for object
 
         Args:
-            object_name: 物体名称
+            object_name: Object name
 
         Returns:
-            dict: 找到的物体信息，如 {"name": "apple", "position": [x,y,z]}
-            None: 未找到
+            dict: Found object information, like {"name": "apple", "position": [x,y,z]}
+            None: Not found
         """
         pass
 
     @abstractmethod
     def pick(self, object_name: str, object_id: Optional[int] = None) -> bool:
         """
-        抓取物体
+        Pick up object
 
         Args:
-            object_name: 物体名称
-            object_id: 物体ID（如果有多个同名物体）
+            object_name: Object name
+            object_id: Object ID (if multiple objects with same name)
 
         Returns:
-            bool: 是否成功
+            bool: Whether successful
         """
         pass
 
     @abstractmethod
     def place(self, location) -> bool:
         """
-        放置物体
+        Place object
 
         Args:
-            location: 放置位置
+            location: Place location
 
         Returns:
-            bool: 是否成功
+            bool: Whether successful
         """
         pass
 
     @abstractmethod
     def speak(self, content: str) -> bool:
         """
-        语音输出
+        Voice output
 
         Args:
-            content: 要说的内容
+            content: Content to speak
 
         Returns:
-            bool: 是否成功
+            bool: Whether successful
         """
         pass
 
     @abstractmethod
     def wait(self, reason: Optional[str] = None) -> bool:
         """
-        等待/无操作
+        Wait / No-op
 
         Args:
-            reason: 等待原因
+            reason: Reason for waiting
 
         Returns:
-            bool: 是否成功
+            bool: Whether successful
         """
         pass
 
     def get_state(self) -> RobotState:
-        """获取当前状态"""
+        """Get current state"""
         return self.state
 
     def set_state(self, state: RobotState):
-        """设置状态"""
+        """Set state"""
         self.state = state

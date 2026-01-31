@@ -1,47 +1,46 @@
 """
-Mock Robot - 模拟机器人
+Mock Robot
 
-在没有真实硬件的情况下，模拟机器人的行为
-用于PC端开发和测试
+Simulates robot behavior without real hardware
+For PC development and testing
 """
+
+import sys
+import os
+# Add src directory to Python path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
 import time
 import random
 from typing import Optional, List
-from .robot_interface import RobotInterface, RobotState
+from modules.execution.robot_interface import RobotInterface, RobotState
 
 
 class MockRobot(RobotInterface):
     """
-    模拟机器人类
+    Mock robot class
 
-    模拟所有硬件操作，用日志代替真实动作
+    Simulates all hardware operations, uses logs instead of real actions
     """
 
     def __init__(self, name: str = "MockRobot"):
         super().__init__()
         self.name = name
-        self.current_position = "home"  # 初始位置
-        self.holding_object = None      # 当前抓取的物体
+        self.current_position = "home"  # Initial position
+        self.holding_object = None      # Currently held object
 
-        # 模拟的环境地图
+        # Simulated environment map
         self.known_locations = {
             "home": [0.0, 0.0, 0.0],
-            "起点": [0.0, 0.0, 0.0],  # 中文别名
-            "start_point": [0.0, 0.0, 0.0],  # 英文别名
+            "start_point": [0.0, 0.0, 0.0], 
             "kitchen": [5.0, 2.0, 0.0],
-            "厨房": [5.0, 2.0, 0.0],
             "living_room": [3.0, -1.0, 0.0],
-            "客厅": [3.0, -1.0, 0.0],
             "bedroom": [-2.0, 4.0, 0.0],
-            "卧室": [-2.0, 4.0, 0.0],
             "table": [4.0, 1.0, 0.0],
-            "桌子": [4.0, 1.0, 0.0],
             "desk": [1.0, 3.0, 0.0],
-            "书桌": [1.0, 3.0, 0.0],
         }
 
-        # 模拟的物体数据库
+        # Simulated object database
         self.known_objects = {
             "apple": {"name": "apple", "location": "table", "position": [4.0, 1.0, 0.8]},
             "bottle": {"name": "bottle", "location": "kitchen", "position": [5.0, 2.0, 1.0]},
@@ -49,65 +48,65 @@ class MockRobot(RobotInterface):
             "book": {"name": "book", "location": "desk", "position": [1.0, 3.0, 0.9]},
         }
 
-        print(f"🤖 {self.name} 初始化成功")
-        print(f"   当前位置: {self.current_position}")
-        print(f"   已知位置: {list(self.known_locations.keys())}")
-        print(f"   已知物体: {list(self.known_objects.keys())}")
+        print(f"🤖 {self.name} initialized successfully")
+        print(f"   Current position: {self.current_position}")
+        print(f"   Known locations: {list(self.known_locations.keys())}")
+        print(f"   Known objects: {list(self.known_objects.keys())}")
 
     def navigate(self, target) -> bool:
-        """模拟导航"""
+        """Simulate navigation"""
         self.set_state(RobotState.EXECUTING)
-        print(f"\n🚗 [导航] 从 {self.current_position} 前往 {target}")
+        print(f"\n🚗 [Navigate] From {self.current_position} to {target}")
 
-        # 模拟移动延迟
+        # Simulate movement delay
         time.sleep(0.5)
 
-        # 检查目标是否存在
+        # Check if target exists
         if isinstance(target, str):
             if target in self.known_locations:
                 self.current_position = target
                 coords = self.known_locations[target]
-                print(f"✓ 已到达 {target} (坐标: {coords})")
+                print(f"✓ Arrived at {target} (coordinates: {coords})")
                 self.set_state(RobotState.IDLE)
                 return True
             else:
-                print(f"✗ 未知位置: {target}")
+                print(f"✗ Unknown location: {target}")
                 self.set_state(RobotState.ERROR)
                 return False
         elif isinstance(target, list) and len(target) == 3:
-            # 直接坐标导航
-            self.current_position = f"坐标{target}"
-            print(f"✓ 已到达坐标 {target}")
+            # Direct coordinate navigation
+            self.current_position = f"coordinates{target}"
+            print(f"✓ Arrived at coordinates {target}")
             self.set_state(RobotState.IDLE)
             return True
         else:
-            print(f"✗ 无效的目标格式: {target}")
+            print(f"✗ Invalid target format: {target}")
             self.set_state(RobotState.ERROR)
             return False
 
     def search(self, object_name: str) -> Optional[dict]:
-        """模拟搜索物体"""
+        """Simulate object search"""
         self.set_state(RobotState.EXECUTING)
-        print(f"\n🔍 [搜索] 正在寻找: {object_name}")
+        print(f"\n🔍 [Search] Searching for: {object_name}")
 
-        # 模拟搜索延迟
+        # Simulate search delay
         time.sleep(0.8)
 
-        # 查找物体
+        # Look for object
         if object_name in self.known_objects:
             obj = self.known_objects[object_name]
-            print(f"✓ 找到 {object_name} 在 {obj['location']}")
-            print(f"   位置: {obj['position']}")
+            print(f"✓ Found {object_name} at {obj['location']}")
+            print(f"   Position: {obj['position']}")
             self.set_state(RobotState.IDLE)
             return obj
         else:
-            # 模拟一定概率找不到
+            # Simulate probability of not finding
             if random.random() < 0.3:
-                print(f"✗ 未找到 {object_name}")
+                print(f"✗ Did not find {object_name}")
                 self.set_state(RobotState.IDLE)
                 return None
             else:
-                # 创建一个"发现"的物体
+                # Create a "discovered" object
                 new_obj = {
                     "name": object_name,
                     "location": self.current_position,
@@ -118,53 +117,55 @@ class MockRobot(RobotInterface):
                     ]
                 }
                 self.known_objects[object_name] = new_obj
-                print(f"✓ 找到 {object_name} 在当前位置")
+                print(f"✓ Found {object_name} at current location")
                 self.set_state(RobotState.IDLE)
                 return new_obj
 
     def pick(self, object_name: str, object_id: Optional[int] = None) -> bool:
-        """模拟抓取物体"""
+        """Simulate object picking"""
         self.set_state(RobotState.EXECUTING)
-        print(f"\n🤏 [抓取] 尝试抓取: {object_name}")
+        print(f"\n🤏 [Pick] Attempting to pick: {object_name}")
 
-        # 检查是否已经抓着东西
+        # Check if already holding something
         if self.holding_object:
-            print(f"✗ 手中已有物体: {self.holding_object}")
+            print(f"✗ Already holding object: {self.holding_object}")
             self.set_state(RobotState.ERROR)
             return False
 
-        # 模拟抓取延迟
+        # Simulate picking delay
         time.sleep(0.6)
 
-        # 检查物体是否存在
+        # Check if object exists
         if object_name in self.known_objects:
             obj = self.known_objects[object_name]
-            # 简化版：不检查距离，假设已经在附近
+            # Simplified: don't check distance, assume already nearby
             self.holding_object = object_name
-            print(f"✓ 成功抓取 {object_name}")
+            print(f"✓ Successfully picked {object_name}")
             self.set_state(RobotState.IDLE)
             return True
         else:
-            print(f"✗ 物体不存在: {object_name}")
+            print(f"✗ Object does not exist: {object_name}")
             self.set_state(RobotState.ERROR)
             return False
 
     def place(self, location) -> bool:
-        """模拟放置物体"""
+        """
+        Simulate placing an object
+        """
         self.set_state(RobotState.EXECUTING)
-        print(f"\n📦 [放置] 将物体放置到: {location}")
+        print(f"\n📦 [Place] Placing object at: {location}")
 
-        # 检查是否抓着东西
+        # Check if holding an object
         if not self.holding_object:
-            print(f"✗ 手中没有物体")
+            print(f"✗ No object in hand")
             self.set_state(RobotState.ERROR)
             return False
 
-        # 模拟放置延迟
+        # Simulate placement delay
         time.sleep(0.5)
 
-        print(f"✓ 已将 {self.holding_object} 放置到 {location}")
-        # 更新物体位置
+        print(f"✓ Placed {self.holding_object} at {location}")
+        # Update object location
         if self.holding_object in self.known_objects:
             self.known_objects[self.holding_object]["location"] = str(location)
 
@@ -173,28 +174,30 @@ class MockRobot(RobotInterface):
         return True
 
     def speak(self, content: str) -> bool:
-        """模拟语音输出"""
+        """
+        Simulate speech output
+        """
         self.set_state(RobotState.EXECUTING)
-        print(f"\n💬 [语音] {self.name}: \"{content}\"")
+        print(f"\n💬 [Speech] {self.name}: \"{content}\"")
 
-        # 模拟TTS延迟
+        # Simulate TTS delay
         time.sleep(0.3)
 
         self.set_state(RobotState.IDLE)
         return True
 
     def wait(self, reason: Optional[str] = None) -> bool:
-        """等待/无操作"""
-        msg = f"\n⏸️  [等待]"
+        """Wait / no operation"""
+        msg = f"\n⏸️  [Wait]"
         if reason:
-            msg += f" 原因: {reason}"
+            msg += f" Reason: {reason}"
         print(msg)
 
         self.set_state(RobotState.IDLE)
         return True
 
     def get_status(self) -> dict:
-        """获取机器人状态"""
+        """Get robot status"""
         return {
             "name": self.name,
             "state": self.state.value,
@@ -203,40 +206,40 @@ class MockRobot(RobotInterface):
         }
 
     def print_status(self):
-        """打印当前状态"""
+        """Print current status"""
         status = self.get_status()
-        print(f"\n📊 机器人状态:")
-        print(f"   状态: {status['state']}")
-        print(f"   位置: {status['position']}")
-        print(f"   手持: {status['holding'] or '无'}")
+        print(f"\n📊 Robot status:")
+        print(f"   State: {status['state']}")
+        print(f"   Position: {status['position']}")
+        print(f"   Holding: {status['holding'] or 'None'}")
 
 
-# ==================== 测试代码 ====================
+# ==================== Test code ====================
 
 if __name__ == "__main__":
-    print("=== 测试 Mock Robot ===\n")
+    print("=== Test Mock Robot ===\n")
 
-    # 创建机器人
+    # Create robot
     robot = MockRobot(name="LARA")
 
-    # 测试导航
+    # Test navigation
     robot.navigate("kitchen")
     robot.print_status()
 
-    # 测试搜索
+    # Test search
     result = robot.search("bottle")
-    print(f"搜索结果: {result}")
+    print(f"Search result: {result}")
 
-    # 测试抓取
+    # Test pick
     robot.pick("bottle")
     robot.print_status()
 
-    # 测试导航 + 放置
+    # Test navigate + place
     robot.navigate("table")
     robot.place("table")
     robot.print_status()
 
-    # 测试语音
-    robot.speak("任务完成！")
+    # Test speech
+    robot.speak("Task completed!")
 
-    print("\n✓ 所有测试通过！")
+    print("\n✓ All tests passed!")

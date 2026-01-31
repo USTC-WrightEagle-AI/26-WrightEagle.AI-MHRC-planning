@@ -1,43 +1,43 @@
 """
-本地配置示例
+Local Configuration Example
 
-1. 将此文件重命名为 config_local.py
-2. 填入你的 API 密钥
-3. config_local.py 会自动覆盖 config.py 中的默认配置
+1. Rename this file to config_local.py
+2. Fill in your API keys
+3. config_local.py will automatically override default settings in config.py
 """
 
 from config import RunMode
 
-# ==================== 运行模式 ====================
-# MODE = RunMode.CLOUD  # 云端API
-# MODE = RunMode.LOCAL  # 本地Ollama
+# ==================== Run Mode ====================
+MODE = RunMode.CLOUD  # Cloud API
+# MODE = RunMode.LOCAL  # Local Ollama
 
-# ==================== 云端配置 ====================
+# ==================== Cloud Configuration ====================
 
-# DeepSeek API（推荐）
-# 注册地址: https://platform.deepseek.com/
-# CLOUD_BASE_URL = "https://api.deepseek.com"
-# CLOUD_API_KEY = "sk-your-deepseek-api-key-here"
-# CLOUD_MODEL = "deepseek-chat"
+# DeepSeek API 
+# Register at: https://platform.deepseek.com/
+CLOUD_BASE_URL = "https://api.deepseek.com/v1"
+CLOUD_API_KEY = "sk-your-dashscope-api-key-here"
+CLOUD_MODEL = "deepseek-chat"
 
-# 阿里云 DashScope（可选）
-# 注册地址: https://dashscope.console.aliyun.com/
+# Alibaba Cloud DashScope (Optional)
+# Register at: https://dashscope.console.aliyun.com/
 # CLOUD_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 # CLOUD_API_KEY = "sk-your-dashscope-api-key-here"
 # CLOUD_MODEL = "qwen-turbo"
 
-# OpenAI（可选）
+# OpenAI (Optional)
 # CLOUD_BASE_URL = "https://api.openai.com/v1"
 # CLOUD_API_KEY = "sk-your-openai-api-key-here"
 # CLOUD_MODEL = "gpt-3.5-turbo"
 
-# ==================== 本地配置 ====================
-# 如果使用本地 Ollama，无需修改以下配置
-# LOCAL_BASE_URL = "http://localhost:11434/v1"
-# LOCAL_API_KEY = "ollama"
-# LOCAL_MODEL = "qwen2.5:3b"
+# ==================== Local Configuration ====================
+# No need to modify the following if using local Ollama
+LOCAL_BASE_URL = "http://localhost:11434/v1"
+LOCAL_API_KEY = "ollama"
+LOCAL_MODEL = "qwen3:8b"
 
-# ==================== 其他配置 ====================
-# TEMPERATURE = 0.7
-# MAX_TOKENS = 512
-# ROBOT_NAME = "LARA"
+# ==================== Other Configuration ====================
+TEMPERATURE = 0.7
+MAX_TOKENS = 1024
+ROBOT_NAME = "LARA"

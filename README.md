@@ -1,50 +1,168 @@
-# Project CADE - 具身智能机器人
+# LLM-based Task Planning System
 
-基于云端大脑的服务机器人开发框架
+> A single-robot variant implementation of the MHRC (Multi-Heterogeneous Robot Collaboration) framework for RoboCup@Home competition
 
-## 架构设计
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 
+
+---
+
+## Overview
+
+This project implements a **single-robot variant of the MHRC framework** specifically designed for the RoboCup@Home competition. The system uses Large Language Models (LLMs) for natural language understanding and task planning, following a modular architecture with four core components: Observation, Memory, Planning, and Execution.
+
+### Module Description
+
+| Module | Functionality | Implementation Status |
+|--------|--------------|----------------------|
+| **Observation** | Collects information from navigation, perception, and manipulation components. | ✅ Basic Implementation |
+| **Memory** | Records task execution history and feedback from the environment. | ✅ Basic Implementation |
+| **Planning** | LLM-based task decomposition into predefined action sequences. | ✅ Complete Implementation |
+| **Execution** | Action execution, status monitoring, and feedback collection. | ✅ Mock Implementation |
+
+---
+
+## Project Structure
+
+```plaintext
+LLM/
+├── src/                                      # Source code
+│   ├── main.py                               # Entry point
+│   ├── config.py                             # Configuration
+│   ├── config_local.example.py               # Configuration template
+│   ├── robot_controller.py                   # Main controller
+│   └── modules/                              # Four core modules
+│       ├── observation/                      # Observation module
+│       │   ├── observer_interface.py         # Observer interface
+│       │   └── observers.py                  # Concrete observer implementations
+│       ├── memory/                           # Memory module
+│       │   └── memory_manager.py             # Memory manager
+│       ├── planning/                         # Planning module
+│       │   ├── llm_client.py                 # LLM client
+│       │   ├── prompts.py                    # Prompt templates
+│       │   ├── schemas.py                    # Action schemas
+│       │   └── planner.py                    # Task planner
+│       └── execution/                        # Execution module
+│           ├── executor.py                   # Action executor
+│           ├── mock_robot.py                 # Mock robot (for testing)
+│           ├── robot_interface.py            # Robot interface definition
+│           └── feedback.py                   # Feedback collector
+├── demo/                                     # Demo scripts
+├── tests/                                    # Test cases
+├── requirements.txt                          # Dependencies
+└── setup.sh                                  # Setup script
 ```
-CADE/
-├── brain/          # 大脑模块（LLM交互、意图识别、决策生成）
-├── body/           # 躯干模块（硬件控制、Mock/Real切换）
-├── tests/          # 测试用例
-├── config.py       # 配置抽象层（支持云端/本地切换）
-└── main.py         # 主入口
-```
 
-## 开发阶段
+---
 
-### 第一阶段：PC端开发（当前）
-- [x] 建立项目结构
-- [ ] 配置抽象层
-- [ ] LLM Client 实现
-- [ ] Mock Robot 实现
-- [ ] 端到端测试
+## Quick Start
 
-### 第二阶段：Orin部署（硬件到货后）
-- [ ] 部署 Ollama
-- [ ] 切换为本地模型
-- [ ] 对接真实 ROS 2
+### 1. Environment Setup
 
-## 快速开始
+**Using the automated setup script (Recommended):**
 
 ```bash
-# 安装依赖
-pip install -r requirements.txt
+# Clone repository
+git clone https://github.com/USTC-WrightEagle-AI/LLM.git
+cd LLM
 
-# 配置API（创建 config.local.py）
-cp config.py config.local.py
-# 编辑 config.local.py，填入你的API密钥
+```bash
+# Clone repository
+git clone https://github.com/USTC-WrightEagle-AI/LLM.git
+cd LLM
 
-# 运行测试
-python main.py
+# Run setup script
+bash setup.sh
 ```
 
-## 技术栈
+The script will:
+- Create a conda environment named `cade` with Python 3.11
+- Install all dependencies from `requirements.txt`
+- Create configuration file from template
 
-- **推理引擎**: DeepSeek/DashScope (云端) → Ollama (本地)
-- **基础模型**: Qwen 2.5 (3B-Instruct)
-- **API标准**: OpenAI Compatible
-- **数据校验**: Pydantic
-- **机器人通信**: ROS 2 Humble (未来)
+**Manual setup:**
+
+```bash
+# Create conda environment
+conda create -n cade python=3.11 -y
+conda activate cade
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy configuration template
+cp src/config_local.example.py src/config_local.py
+```
+
+### 2. LLM Configuration
+
+**Option A: Cloud API (Recommended for development)**
+
+```bash
+# Edit configuration file
+nano src/config_local.py
+
+# Add your API key
+# Supported providers: DeepSeek, Alibaba DashScope, OpenAI-compatible APIs
+```
+
+**Option B: Local Ollama**
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull model
+ollama pull qwen2.5:3b
+
+# Configure in config_local.py
+MODE = RunMode.LOCAL
+```
+
+### 3. Run the System
+
+```bash
+# Enter source directory
+cd src
+
+# Interactive mode
+python main.py
+
+# Test mode (predefined scenarios)
+python main.py --test
+
+# Demo mode
+python main.py --demo
+
+# Debug mode
+python main.py --mode debug
+```
+
+### 4. Example Commands
+
+```
+User: Hello
+User: Go to the kitchen
+User: Help me find an apple
+User: Place the apple on the table
+User: status      # Check robot status
+User: stats       # View statistics
+User: quit        # Exit
+```
+
+---
+
+## Predefined Action Set
+
+Following the MHRC framework, our system decomposes natural language instructions into a sequence of predefined actions:
+
+| Action | Description | Parameters | Example |
+|--------|-------------|-----------|---------|
+| `navigate` | Navigate to target location | `target`: location name or coordinates | `{"type": "navigate", "target": "kitchen"}` |
+| `search` | Search for object in environment | `object_name`: name of target object | `{"type": "search", "object_name": "apple"}` |
+| `pick` | Grasp target object | `object_name`, `object_id` (optional) | `{"type": "pick", "object_name": "bottle"}` |
+| `place` | Place held object at location | `location`: target placement location | `{"type": "place", "location": "table"}` |
+| `speak` | Output speech content | `content`: text to speak | `{"type": "speak", "content": "Task completed"}` |
+| `wait` | Wait / No operation | `reason` (optional): reason for waiting | `{"type": "wait", "reason": "awaiting user"}` |
+
+These actions are validated using **Pydantic schemas** to ensure correct format and type safety.
