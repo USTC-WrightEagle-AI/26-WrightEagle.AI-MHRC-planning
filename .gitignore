@@ -22,16 +22,16 @@ config_local.py
 config.local.py
 .env
 
-# 日志
+# logs
 *.log
 logs/
 
-# 测试
+# test
 .pytest_cache/
 .coverage
 htmlcov/
 
-# ROS（未来需要）
+# ROS
 build/
 devel/
 install/
