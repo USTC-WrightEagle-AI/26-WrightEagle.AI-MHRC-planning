@@ -6,6 +6,7 @@
 
 from enum import Enum
 from typing import Literal
+import os
 
 
 class RunMode(str, Enum):
@@ -27,9 +28,9 @@ class Config:
     MODE: RunMode = RunMode.CLOUD
 
     # ==================== 云端配置 ====================
-    # DeepSeek API (推荐，性价比高)
+    # DeepSeek API
     CLOUD_BASE_URL = "https://api.deepseek.com"
-    CLOUD_API_KEY = "sk-d1234669b3a4491ebdff2d7697edaa4a"  # 替换为你的API Key
+    CLOUD_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # 从环境变量 DEEPSEEK_API_KEY 读取
     CLOUD_MODEL = "deepseek-chat"
 
     # 阿里 DashScope (可选)
@@ -91,20 +92,3 @@ class Config:
     def is_local_mode(cls) -> bool:
         """判断是否为本地模式"""
         return cls.MODE == RunMode.LOCAL
-
-
-# 尝试导入本地配置（用于覆盖默认值，不提交到git）
-try:
-    import config_local
-
-    # 动态更新 Config 类的属性
-    for attr in dir(config_local):
-        if not attr.startswith('_'):  # 跳过私有属性
-            value = getattr(config_local, attr)
-            if hasattr(Config, attr):
-                setattr(Config, attr, value)
-
-    print("✓ 已加载本地配置 config_local.py")
-except ImportError:
-    print("⚠ 未找到 config_local.py，使用默认配置")
-    print("提示：复制 config.py 为 config_local.py 并填入你的API密钥")

@@ -1,7 +1,15 @@
 <launch>
-    <!-- ASR 节点：语音识别 (SenseVoice 多语言模型) -->
-    <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen" />
+    <arg name="mic_id" default="CADE_Mic" />
+    <arg name="speaker_id" default="CADE_Speaker" />
 
-    <!-- TTS 节点：语音合成 -->
-    <node pkg="asr_tts" type="tts_node.py" name="tts_node" output="screen" />
-</launch>
+    <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen">
+        <param name="device_name" value="$(arg mic_id)" />
+    </node>
+
+    <node pkg="asr_tts" type="tts_node.py" name="tts_node" output="screen">
+        <param name="device_name" value="$(arg speaker_id)" />
+        <param name="play" value="true" />
+    </node>
+
+    </launch>
+

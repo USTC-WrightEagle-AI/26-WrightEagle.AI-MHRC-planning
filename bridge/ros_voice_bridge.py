@@ -14,7 +14,7 @@ import rospy
 from std_msgs.msg import String
 
 from robot_controller import RobotController
-from body.voice_robot import VoiceRobot
+from body.robot import Robot
 from body.robot_interface import RobotState
 from config import Config
 
@@ -51,7 +51,7 @@ class RosVoiceBridge:
         rospy.init_node('cade_voice_bridge', anonymous=True)
 
         # 创建语音机器人
-        self.robot = VoiceRobot(name=Config.ROBOT_NAME)
+        self.robot = Robot(name=Config.ROBOT_NAME)
 
         # 创建控制器
         self.controller = RobotController(

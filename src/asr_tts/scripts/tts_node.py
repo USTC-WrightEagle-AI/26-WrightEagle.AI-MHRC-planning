@@ -8,6 +8,7 @@ import rospy
 from std_msgs.msg import String
 import rospkg
 import os
+import sys
 pkg_path = rospkg.RosPack().get_path('asr_tts')
 
 
@@ -17,32 +18,44 @@ def get_args():
     )
 
     # TTS 相关参数
+# TTS 核心模型文件
     parser.add_argument(
-        "--kitten-model",
+        "--tts-model",
         type=str,
-        default=os.path.join(pkg_path, "models/kitten-nano-en-v0_1-fp16/model.fp16.onnx"),
-        help="Path to kitten TTS model",
+        default=os.path.join(pkg_path, "models/vits-zh-aishell3/vits-aishell3.int8.onnx"),  # 默认指向新模型
+        help="Path to the TTS model file (.onnx)",
     )
 
+    # 词表文件（VITS/Kitten 通用）
     parser.add_argument(
-        "--kitten-voices",
+        "--tts-tokens",
         type=str,
-        default=os.path.join(pkg_path, "models/kitten-nano-en-v0_1-fp16/voices.bin"),
-        help="Path to kitten TTS voices",
+        default=os.path.join(pkg_path, "models/vits-zh-aishell3/tokens.txt"),
+        help="Path to the tokens.txt file",
     )
 
+    # 发音词典（VITS 需要，Kitten 不需要但可留空）
     parser.add_argument(
-        "--kitten-tokens",
+        "--tts-lexicon",
         type=str,
-        default=os.path.join(pkg_path, "models/kitten-nano-en-v0_1-fp16/tokens.txt"),
-        help="Path to kitten TTS tokens",
+        default=os.path.join(pkg_path, "models/vits-zh-aishell3/lexicon.txt"),
+        help="Path to the lexicon.txt file (optional for some models)",
     )
 
+    # 专用数据目录（Kitten 用这个，VITS 通常用 lexicon）
     parser.add_argument(
-        "--kitten-data-dir",
+        "--tts-data-dir",
         type=str,
-        default=os.path.join(pkg_path, "models/kitten-nano-en-v0_1-fp16/espeak-ng-data"),
-        help="Path to kitten TTS data directory",
+        default="",
+        help="Path to the model data directory (e.g., espeak-ng-data)",
+    )
+
+    # 声音定义文件（Kitten 专用）
+    parser.add_argument(
+        "--tts-voices",
+        type=str,
+        default="",
+        help="Path to the voices.bin file (specific to Kitten models)",
     )
 
     parser.add_argument(
@@ -98,24 +111,42 @@ def get_args():
 
 
 def create_tts(args):
-    """创建 TTS 引擎"""
-    tts_config = sherpa_onnx.OfflineTtsConfig(
-        model=sherpa_onnx.OfflineTtsModelConfig(
-            kitten=sherpa_onnx.OfflineTtsKittenModelConfig(
-                model=args.kitten_model,
-                voices=args.kitten_voices,
-                tokens=args.kitten_tokens,
-                data_dir=args.kitten_data_dir,
-            ),
-            provider=args.provider,
-            num_threads=args.num_threads,
-        ),
-    )
-    if not tts_config.validate():
-        raise ValueError("Invalid TTS config")
+    """通用的 TTS 引擎创建函数"""
+    model_path = args.tts_model.lower()
 
-    tts = sherpa_onnx.OfflineTts(tts_config)
-    return tts
+    # 基础配置：推理引擎设置
+    model_config = sherpa_onnx.OfflineTtsModelConfig(
+        provider=args.provider,
+        num_threads=args.num_threads,
+        debug=False
+    )
+
+    # 根据路径或参数判定模型架构
+    if "vits" in model_path:
+        model_config.vits = sherpa_onnx.OfflineTtsVitsModelConfig(
+            model=args.tts_model,
+            tokens=args.tts_tokens,
+            lexicon=args.tts_lexicon,
+            noise_scale=0.667,
+            noise_scale_w=0.8,
+        )
+    elif "kitten" in model_path:
+        model_config.kitten = sherpa_onnx.OfflineTtsKittenModelConfig(
+            model=args.tts_model,
+            voices=args.tts_voices,
+            tokens=args.tts_tokens,
+            data_dir=args.tts_data_dir,
+        )
+    else:
+        # 如果是其他模型（如 Matcha），可以继续扩展 elif
+        raise ValueError(f"Unsupported model architecture in path: {args.tts_model}")
+
+    tts_config = sherpa_onnx.OfflineTtsConfig(model=model_config)
+
+    if not tts_config.validate():
+        raise ValueError("TTS 配置校验失败，请检查模型文件路径是否正确。")
+
+    return sherpa_onnx.OfflineTts(tts_config)
 
 
 def play_audio(audio, sample_rate, device=None, wav_path=None):
@@ -193,33 +224,35 @@ class TTSNode:
         rospy.init_node(node_name)
         self.args, _ = get_args()
 
-        # 查找输出设备
+        # 1. 从参数服务器获取“人定的”设备真名
+        # 默认值可以设为 "default"，但建议在 launch 中明确指定
+        target_name = rospy.get_param("~device_name", "default")
+
         import sounddevice as sd
         self.output_device = None
 
         devices = sd.query_devices()
-        # 优先使用 Built-in Audio
+        rospy.loginfo(f"🔍 [TTS] 正在尝试锁定输出设备: \"{target_name}\"")
+
+        # 2. 确定性匹配逻辑
         for i, d in enumerate(devices):
-            if 'Built-in Audio' in d['name'] and d['max_output_channels'] > 0:
+            # 注意：我们要找的是有输出通道（max_output_channels > 0）的设备
+            if target_name in d['name'] and d['max_output_channels'] > 0:
                 self.output_device = i
-                print(f"使用音频输出: {d['name']} @ {d['default_samplerate']} Hz")
+                rospy.loginfo(f"✅ [TTS] 成功锁定输出设备: [{i}] {d['name']}")
                 break
 
-        # 如果没找到，使用第一个有输出的设备
+        # 3. 强制校验：找不到就报错，不准乱猜
         if self.output_device is None:
-            for i, d in enumerate(devices):
-                if d['max_output_channels'] > 0:
-                    self.output_device = i
-                    print(f"使用音频输出: {d['name']} @ {d['default_samplerate']} Hz")
-                    break
+            rospy.logerr(f"❌ [TTS] 无法找到指定的输出设备: \"{target_name}\"")
+            rospy.logerr("请运行 'python3 -m sounddevice' 确认设备名，并在 launch 中修改。")
+            # 根据你的容错需求，可以选择 sys.exit(1) 或者设为默认值
+            sys.exit(1)
 
-        if self.output_device is None:
-            print("⚠️ 未找到输出设备")
-
-        print("Initializing TTS engine...")
+        rospy.loginfo("Initializing TTS engine...")
         self.tts = create_tts(self.args)
         self.tts_subscription_ = rospy.Subscriber('tts', String, self.TTS, queue_size=10)
-        print("TTS Node is READY! Listening to /tts topic...")
+        rospy.loginfo("TTS Node is READY!")
 
     def TTS(self, msg: String):
         print(f"Generating speech for: '{msg.data}'")

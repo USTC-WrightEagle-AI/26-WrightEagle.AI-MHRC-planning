@@ -4,6 +4,7 @@ import wave
 import sherpa_onnx
 import numpy as np
 import threading
+import queue
 from pathlib import Path
 import sys
 import argparse
@@ -382,31 +383,31 @@ class ASRNode:
 
     def run(self):
         """主循环 - 直接在主线程运行，不使用子线程"""
+        # 1. 获取所有可用音频设备
         devices = sd.query_devices()
         if len(devices) == 0:
-            print("No microphone devices found")
-            sys.exit(0)
+            rospy.logerr("❌ 未发现任何音频设备！")
+            sys.exit(1)
 
-        print(devices)
+        # 2. 从 ROS 参数服务器获取目标设备名称 (Target_ASR_NAME)
+        # 如果 launch 没传，默认用 'default' 尝试寻找
+        target_name = rospy.get_param("~device_name", "default")
+        rospy.loginfo(f"🔍 正在尝试锁定音频设备: \"{target_name}\"")
 
-        # 使用 sysdefault 设备 (设备 5)
-        # 注意: Built-in Audio (设备 6) 会导致 sounddevice 崩溃
+        # 3. 确定性查找：根据名字找 Index
         default_input_device_idx = None
         for i, d in enumerate(devices):
-            if 'sysdefault' in d['name'] and d['max_input_channels'] > 0:
+            if target_name in d['name'] and d['max_input_channels'] > 0:
                 default_input_device_idx = i
                 break
 
+        # 4. 强制校验：找不到直接退出，不准乱猜
         if default_input_device_idx is None:
-            # 回退到系统默认
-            default_input_device_idx = sd.default.device[0]
-            if default_input_device_idx < 0:
-                for i, d in enumerate(devices):
-                    if d['max_input_channels'] > 0:
-                        default_input_device_idx = i
-                        break
+            rospy.logerr(f"❌ 无法找到指定的设备: \"{target_name}\"")
+            rospy.logerr("请运行 'python3 -m sounddevice' 确认名字是否正确。")
+            sys.exit(1)
 
-        print(f'使用麦克风: {devices[default_input_device_idx]["name"]}')
+        print(f"✅ 成功锁定麦克风: [{default_input_device_idx}] {devices[default_input_device_idx]['name']}")
 
         args, _ = get_args()
         assert_file_exists(args.tokens)
@@ -481,59 +482,87 @@ class ASRNode:
                 f.setframerate(16000)
                 f.writeframes(audio_int16.tobytes())
 
-        # 使用 sd.rec() 代替 InputStream (InputStream 在某些系统上会崩溃)
+        # 创建音频数据队列（生产者-消费者模式）
+        audio_queue = queue.Queue(maxsize=1000)
+
+        # 音频回调函数 - 运行在 PortAudio 后台线程
+        def audio_callback(indata, frames, time, status=None):
+            """将音频数据放入队列"""
+            if status:
+                print(f"音频流状态: {status}", file=sys.stderr)
+            # 拷贝数据以避免被覆盖，非阻塞方式放入队列
+            try:
+                audio_queue.put_nowait(indata.copy())
+            except queue.Full:
+                # 队列已满，丢弃数据（避免阻塞音频线程）
+                pass
+
+        # 使用 sd.InputStream 进行不间断流式录音
         try:
-            while True:
-                # 1. 录制一小段音频
-                samples = sd.rec(samples_per_read, samplerate=device_sample_rate,
-                                 channels=1, dtype='float32', device=default_input_device_idx)
-                sd.wait()
-                samples = samples.flatten()
+            with sd.InputStream(
+                device=default_input_device_idx,
+                channels=1,
+                callback=audio_callback,
+                samplerate=device_sample_rate,
+                dtype='float32'
+            ):
+                print("✅ 音频流已启动，开始监听...")
+                print("Started! Please speak")
 
-                # 2. 重采样到 16000 Hz (如果需要)
-                if device_sample_rate != target_sample_rate:
-                    samples = resample_audio(samples, device_sample_rate, target_sample_rate)
+                while True:
+                    # 1. 从队列获取音频数据（阻塞等待）
+                    indata = audio_queue.get()
+                    samples = indata.flatten()
 
-                # 3. 保存所有样本（如果需要）
-                if all_samples is not None:
-                    all_samples.append(samples)
+                    # 2. 计算并显示当前音频块的振幅（调试用）
+                    rms = np.sqrt(np.mean(samples**2))
+                    max_amp = np.max(np.abs(samples))
+                    print(f"[Audio] RMS: {rms:.6f}, Max: {max_amp:.6f}", end='\r')
 
-                # 4. 处理 VAD
-                buffer = np.concatenate([buffer, samples])
-                while len(buffer) > window_size:
-                    vad.accept_waveform(buffer[:window_size])
-                    buffer = buffer[window_size:]
+                    # 3. 重采样到 16000 Hz (如果需要)
+                    if device_sample_rate != target_sample_rate:
+                        samples = resample_audio(samples, device_sample_rate, target_sample_rate)
 
-                # 5. 收集 VAD 检测到的语音片段
-                while not vad.empty():
-                    speech_segments.append(vad.front.samples)
-                    vad.pop()
+                    # 4. 保存所有样本（如果需要）
+                    if all_samples is not None:
+                        all_samples.append(samples)
 
-                # 6. 处理语音片段（如果有）
-                if speech_segments:
-                    # 只处理一个语音片段，避免阻塞主循环
-                    speech_samples = speech_segments.pop(0)
-                    stream = recognizer.create_stream()
-                    stream.accept_waveform(target_sample_rate, speech_samples)
+                    # 5. 处理 VAD
+                    buffer = np.concatenate([buffer, samples])
+                    while len(buffer) > window_size:
+                        vad.accept_waveform(buffer[:window_size])
+                        buffer = buffer[window_size:]
 
-                    # 7. 执行 ASR 识别
-                    recognizer.decode_stream(stream)
+                    # 6. 收集 VAD 检测到的语音片段
+                    while not vad.empty():
+                        speech_segments.append(vad.front.samples)
+                        vad.pop()
 
-                    # 8. 处理识别结果
-                    text = stream.result.text.strip().lower()
-                    if len(text):
-                        idx = len(texts)
-                        texts.append(text)
-                        print(f"[speaker0]: {text}")
-                        asr_rst = String()
-                        asr_rst.data = text
-                        self.publisher.publish(asr_rst)
+                    # 7. 处理语音片段（如果有）
+                    if speech_segments:
+                        # 只处理一个语音片段，避免阻塞主循环
+                        speech_samples = speech_segments.pop(0)
+                        stream = recognizer.create_stream()
+                        stream.accept_waveform(target_sample_rate, speech_samples)
 
-                        if save_folder:
-                            segment_count += 1
-                            segment_path = save_folder / f"{base_name}-{segment_count}.wav"
-                            save_wav(segment_path, speech_samples)
-                            print(f"VAD segment saved to {segment_path}")
+                        # 8. 执行 ASR 识别
+                        recognizer.decode_stream(stream)
+
+                        # 9. 处理识别结果
+                        text = stream.result.text.strip().lower()
+                        if len(text):
+                            idx = len(texts)
+                            texts.append(text)
+                            print(f"\n[speaker0]: {text}")
+                            asr_rst = String()
+                            asr_rst.data = text
+                            self.publisher.publish(asr_rst)
+
+                            if save_folder:
+                                segment_count += 1
+                                segment_path = save_folder / f"{base_name}-{segment_count}.wav"
+                                save_wav(segment_path, speech_samples)
+                                print(f"VAD segment saved to {segment_path}")
 
         except KeyboardInterrupt:
             print("\nCaught Ctrl + C. Exiting")

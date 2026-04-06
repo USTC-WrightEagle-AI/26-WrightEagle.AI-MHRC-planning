@@ -7,7 +7,6 @@ __pycache__/
 env/
 venv/
 ENV/
-build/
 dist/
 *.egg-info/
 
@@ -18,7 +17,6 @@ dist/
 *.swo
 
 # 配置文件（包含API密钥）
-config.local.py
 .env
 
 # 日志
@@ -31,7 +29,4 @@ logs/
 htmlcov/
 
 # ROS（未来需要）
-build/
-devel/
-install/
 .aider*

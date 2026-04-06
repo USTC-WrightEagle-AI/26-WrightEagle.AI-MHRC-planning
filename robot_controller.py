@@ -9,7 +9,7 @@ from config import Config
 from brain.llm_client import LLMClient
 from brain.prompts import get_system_prompt
 from brain.schemas import RobotDecision, RobotAction
-from body.mock_robot import MockRobot
+from body.robot import Robot
 from body.robot_interface import RobotInterface, RobotState
 
 
@@ -41,7 +41,7 @@ class RobotController:
             show_thought: 是否显示 LLM 的思考过程（默认 True）
         """
         # 初始化机器人
-        self.robot = robot or MockRobot(name=Config.ROBOT_NAME)
+        self.robot = robot or Robot(name=Config.ROBOT_NAME)
 
         # 初始化LLM客户端
         self.llm_client = llm_client or LLMClient()
