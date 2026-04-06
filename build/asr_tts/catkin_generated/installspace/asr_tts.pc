@@ -1,8 +1,0 @@
-prefix=/home/huyanshen/HysProjects/CADE/install
-
-Name: asr_tts
-Description: Description of asr_tts
-Version: 0.0.0
-Cflags: 
-Libs: -L${prefix}/lib 
-Requires: 

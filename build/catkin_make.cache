@@ -1,2 +1,0 @@
-asr_tts
--DCATKIN_DEVEL_PREFIX=/home/huyanshen/HysProjects/CADE/devel -DCMAKE_INSTALL_PREFIX=/home/huyanshen/HysProjects/CADE/install -G Unix Makefiles
