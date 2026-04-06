@@ -9,8 +9,8 @@
 from config import RunMode
 
 # ==================== 运行模式 ====================
-# MODE = RunMode.CLOUD  # 云端API
-MODE = RunMode.LOCAL  # 本地Ollama
+MODE = RunMode.CLOUD  # 云端API
+# MODE = RunMode.LOCAL  # 本地Ollama
 
 # ==================== 云端配置 ====================
 

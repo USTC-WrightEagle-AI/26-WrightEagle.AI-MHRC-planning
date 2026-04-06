@@ -14,6 +14,7 @@ class RobotState(str, Enum):
     IDLE = "IDLE"              # 空闲
     THINKING = "THINKING"      # 思考中（LLM推理）
     EXECUTING = "EXECUTING"    # 执行中
+    SPEAKING = "SPEAKING"      # 说话中（TTS播放）
     ERROR = "ERROR"            # 错误状态
 
 

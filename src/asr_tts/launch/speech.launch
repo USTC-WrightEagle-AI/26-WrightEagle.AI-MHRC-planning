@@ -1,0 +1,7 @@
+<launch>
+    <!-- ASR 节点：语音识别 (SenseVoice 多语言模型) -->
+    <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen" />
+
+    <!-- TTS 节点：语音合成 -->
+    <node pkg="asr_tts" type="tts_node.py" name="tts_node" output="screen" />
+</launch>

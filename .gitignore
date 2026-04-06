@@ -34,3 +34,4 @@ htmlcov/
 build/
 devel/
 install/
+.aider*

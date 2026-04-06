@@ -29,7 +29,7 @@ class Config:
     # ==================== 云端配置 ====================
     # DeepSeek API (推荐，性价比高)
     CLOUD_BASE_URL = "https://api.deepseek.com"
-    CLOUD_API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # 替换为你的API Key
+    CLOUD_API_KEY = "sk-d1234669b3a4491ebdff2d7697edaa4a"  # 替换为你的API Key
     CLOUD_MODEL = "deepseek-chat"
 
     # 阿里 DashScope (可选)
