@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-CADE - 具身智能机器人主程序
+CADE ROS Entry Point - ROS 环境下的启动入口
 
-运行模式：
-1. 交互模式: python main.py
-2. 测试模式: python main.py --test
-3. 演示模式: python main.py --demo
+运行方式：
+    rosrun cade main_ros.py
+或
+    python main_ros.py
+
+功能：
+    启动 ROS 语音桥接器，实现语音交互循环
 """
 
 import sys
 import argparse
-from robot_controller import RobotController
+from bridge.ros_voice_bridge import RosVoiceBridge
 from config import Config
 
 
@@ -19,7 +22,7 @@ def print_banner():
     banner = """
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║   🤖 CADE - 具身智能机器人系统                            ║
+║   🤖 CADE - 具身智能机器人系统 (ROS Voice Mode)           ║
 ║   Cognitive Agent for Domestic Environment                ║
 ║                                                           ║
 ║   项目: Project LARA                                      ║
@@ -31,112 +34,66 @@ def print_banner():
     print(f"运行模式: {'☁️  云端' if Config.is_cloud_mode() else '💻 本地'}")
     print(f"模型: {Config.get_llm_config()['model']}")
     print(f"机器人: {Config.ROBOT_NAME}")
-    print(f"Mock模式: {'✓' if Config.ENABLE_MOCK else '✗'}")
+    print(f"输入源: ROS /asr 话题")
+    print(f"输出源: ROS /tts 话题")
     print()
 
 
-def interactive_mode(args):
-    """交互模式"""
-    print_banner()
-    controller = RobotController(
-        prompt_mode=args.mode,
-        show_thought=not args.no_thought
-    )
-    controller.interactive_mode()
-
-
-def test_mode(args):
-    """测试模式"""
-    print_banner()
-    print("🧪 运行测试场景\n")
-
-    controller = RobotController(
-        prompt_mode=args.mode,
-        show_thought=not args.no_thought
-    )
-
-    # 测试用例
-    test_cases = [
-        # 1. 闲聊测试
-        "你好呀",
-        "你叫什么名字？",
-        "你能做什么？",
-
-        # 2. 简单导航
-        "去厨房",
-        "回到起点",
-
-        # 3. 搜索任务
-        "帮我找苹果",
-        "找到水杯",
-
-        # 4. 抓取任务
-        "拿起苹果",
-
-        # 5. 复合任务
-        "把苹果放到桌子上",
-
-        # 6. 边界情况
-        "帮我订个外卖",  # 无法完成的任务
-    ]
-
-    controller.run_test_scenario(test_cases)
-
-
-def demo_mode(args):
-    """演示模式 - 展示一个完整的服务流程"""
-    print_banner()
-    print("🎬 演示模式：展示完整服务流程\n")
-
-    controller = RobotController(
-        prompt_mode=args.mode,
-        show_thought=not args.no_thought
-    )
-
-    demo_scenario = [
-        "你好",
-        "我想要桌子上的苹果",
-        "去桌子那里",
-        "找到苹果",
-        "拿起苹果",
-        "回到起点",
-        "谢谢你",
-    ]
-
-    print("📋 演示场景：用户请求获取桌子上的苹果\n")
-    controller.run_test_scenario(demo_scenario)
+def print_test_cases():
+    """打印测试案例"""
+    test_cases = """
+╔═══════════════════════════════════════════════════════════╗
+║                    📋 测试案例 (可以照着念)                ║
+╠═══════════════════════════════════════════════════════════╣
+║                                                           ║
+║  【基础对话】                                              ║
+║   1. "你好"                                               ║
+║   2. "你叫什么名字"                                        ║
+║   3. "你能做什么"                                          ║
+║                                                           ║
+║  【导航任务】                                              ║
+║   4. "去厨房"                                             ║
+║   5. "回到起点"                                           ║
+║                                                           ║
+║  【搜索任务】                                              ║
+║   6. "帮我找苹果"                                         ║
+║   7. "找到水杯"                                           ║
+║                                                           ║
+║  【复合任务】                                              ║
+║   8. "把苹果拿到桌子上"                                    ║
+║   9. "我渴了，帮我拿瓶水"                                  ║
+║                                                           ║
+║  【闲聊】                                                  ║
+║  10. "今天天气怎么样"                                      ║
+║  11. "给我讲个笑话"                                        ║
+║                                                           ║
+╚═══════════════════════════════════════════════════════════╝
+"""
+    print(test_cases)
 
 
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(
-        description="CADE 具身智能机器人系统",
+        description="CADE 具身智能机器人系统 - ROS 语音模式",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python main.py              # 交互模式
-  python main.py --test       # 测试模式
-  python main.py --demo       # 演示模式
-  python main.py --mode debug # 使用调试提示词
+    python main_ros.py                    # 默认模式
+    python main_ros.py --mode debug       # 调试模式
+    python main_ros.py --no-thought       # 不显示思考过程
+    python main_ros.py --env "你在家中"   # 自定义环境上下文
 
-提示:
-  - 首次运行请先配置 config.py 中的 API 密钥
-  - 交互模式下输入 'quit' 退出
-  - 输入 'status' 查看机器人状态
-  - 输入 'stats' 查看统计信息
+前提条件:
+    1. ROS master 已启动 (roscore)
+    2. ASR 节点已启动，发布到 /asr 话题
+    3. TTS 节点已启动，订阅 /tts 话题
+
+启动顺序:
+    1. roscore
+    2. roslaunch asr_tts speech.launch   # 启动 ASR 和 TTS 节点
+    3. python main_ros.py                 # 启动 CADE 控制器
         """
-    )
-
-    parser.add_argument(
-        '--test',
-        action='store_true',
-        help='运行测试模式'
-    )
-
-    parser.add_argument(
-        '--demo',
-        action='store_true',
-        help='运行演示模式'
     )
 
     parser.add_argument(
@@ -144,31 +101,51 @@ def main():
         type=str,
         choices=['default', 'simple', 'compact', 'debug'],
         default='default',
-        help='提示词模式（default=标准, compact=精简无思考, debug=调试）'
+        help='提示词模式（default=标准, compact=精简, debug=调试）'
     )
 
     parser.add_argument(
         '--no-thought',
         action='store_true',
-        help='不显示 LLM 的思考过程（测试纯执行性能）'
+        help='不显示 LLM 的思考过程'
+    )
+
+    parser.add_argument(
+        '--env',
+        type=str,
+        default="你正坐在 Fedora 实验室的桌子上，目前只能通过语音与人交流。",
+        help='环境上下文信息，注入到系统提示词中'
     )
 
     args = parser.parse_args()
 
+    print_banner()
+    print_test_cases()
+
     try:
-        if args.test:
-            test_mode(args)
-        elif args.demo:
-            demo_mode(args)
-        else:
-            interactive_mode(args)
+        # 创建并启动桥接器
+        bridge = RosVoiceBridge(
+            prompt_mode=args.mode,
+            show_thought=not args.no_thought,
+            environment_context=args.env
+        )
+
+        print("\n✓ CADE 已就绪，等待语音输入...\n")
+        print("提示：")
+        print("  - 对着麦克风说话，可以说上面的测试案例")
+        print("  - 观察终端输出，确认语音是否被识别")
+        print("  - 按 Ctrl+C 退出")
+        print()
+
+        # 进入 ROS 主循环
+        bridge.spin()
 
     except KeyboardInterrupt:
         print("\n\n👋 程序已退出")
         sys.exit(0)
 
     except Exception as e:
-        print(f"\n❌ 发生错误: {e}")
+        print(f"\n❌ 启动失败: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

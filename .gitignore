@@ -4,11 +4,13 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
 env/
 venv/
 ENV/
 dist/
 *.egg-info/
+*.pyc
 
 # IDE
 .vscode/
@@ -29,4 +31,8 @@ logs/
 htmlcov/
 
 # ROS（未来需要）
+build/
+devel/
+logs/
+.catkin_workspace
 .aider*
