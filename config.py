@@ -5,8 +5,12 @@
 """
 
 from enum import Enum
-from typing import Literal
 import os
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+# override=False 表示优先使用系统环境变量，.env 作为补充
+load_dotenv(override=False)
 
 
 class RunMode(str, Enum):
@@ -25,32 +29,27 @@ class Config:
     """
 
     # ==================== 运行模式 ====================
-    MODE: RunMode = RunMode.CLOUD
+    # 优先从环境变量读取，默认为 CLOUD
+    MODE: RunMode = RunMode(os.getenv("CADE_MODE", "CLOUD").upper())
 
-    # ==================== 云端配置 ====================
-    # DeepSeek API
-    CLOUD_BASE_URL = "https://api.deepseek.com"
-    CLOUD_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # 从环境变量 DEEPSEEK_API_KEY 读取
-    CLOUD_MODEL = "deepseek-chat"
+    # ==================== 云端配置 (DeepSeek/DashScope) ====================
+    CLOUD_BASE_URL = os.getenv("CADE_CLOUD_BASE_URL", "https://api.deepseek.com")
+    CLOUD_API_KEY = os.getenv("CADE_CLOUD_API_KEY", "")
+    CLOUD_MODEL = os.getenv("CADE_CLOUD_MODEL", "deepseek-chat")
 
-    # 阿里 DashScope (可选)
-    # CLOUD_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    # CLOUD_API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    # CLOUD_MODEL = "qwen-turbo"
+    # ==================== 本地配置 (Ollama) ====================
+    LOCAL_BASE_URL = os.getenv("CADE_LOCAL_BASE_URL", "http://localhost:11434/v1")
+    LOCAL_API_KEY = os.getenv("CADE_LOCAL_API_KEY", "ollama")
+    LOCAL_MODEL = os.getenv("CADE_LOCAL_MODEL", "qwen2.5:3b")
 
-    # ==================== 本地配置 ====================
-    LOCAL_BASE_URL = "http://localhost:11434/v1"
-    LOCAL_API_KEY = "ollama"  # Ollama不需要真实key
-    LOCAL_MODEL = "qwen2.5:3b"  # 推荐3B量化版本
+    # ==================== LLM 运行参数 ====================
+    # 注意：从 env 读取的都是字符串，需要转换类型
+    TEMPERATURE = float(os.getenv("CADE_TEMPERATURE", "0.7"))
+    MAX_TOKENS = int(os.getenv("CADE_MAX_TOKENS", "512"))
+    TIMEOUT = int(os.getenv("CADE_TIMEOUT", "30"))
 
-    # ==================== LLM 参数 ====================
-    TEMPERATURE = 0.7  # 温度系数（0-1，越高越随机）
-    MAX_TOKENS = 512  # 最大生成长度
-    TIMEOUT = 30  # 请求超时时间（秒）
-
-    # ==================== 机器人配置 ====================
-    ROBOT_NAME = "LARA"
-    ENABLE_MOCK = True  # True=Mock模式，False=真实ROS
+    # ==================== 机器人基础配置 ====================
+    ROBOT_NAME = os.getenv("CADE_ROBOT_NAME", "LARA")
 
     # ==================== 日志配置 ====================
     LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR

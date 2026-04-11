@@ -1,84 +1,126 @@
-# 🤖 CADE (Cognitive Agent for Domestic Environment)
+# CADE: 具身智能机器人系统
 
-**CADE** 是一个基于 **ROS (Noetic)** 的具身智能机器人实验平台，专注于实现**“感知-推理-动作”**的闭环交互。项目采用模块化的“线性演化”架构，集成了实时语音交互 (ASR/TTS) 与大语言模型 (LLM) 推理大脑。
+CADE (Embodied AI Robot System) 是一个集成语音交互（ASR/TTS）与大模型决策驱动的机器人控制系统。支持在 Fedora (开发环境) 下进行静默链路测试，以及在 NVIDIA Jetson Orin / Ubuntu 20.04 (部署环境) 上进行实机运行。
 
+## 1. 基础环境安装
 
+### A. Python & ROS 核心环境 (Conda)
+建议使用 Conda 隔离环境，防止项目依赖与系统自带的机器人驱动产生版本冲突。
 
----
-
-## 🛠️ 环境要求 (Environment)
-
-* **OS**: Fedora Linux (推荐) / Ubuntu 20.04
-* **Middleware**: ROS Noetic
-* **Language**: Python 3.8+ (Conda 环境名建议: `CADE`)
-* **Audio Backend**: PipeWire / PulseAudio
-
----
-
-## 🚀 快速开始 (Quick Start)
-
-### 1. 基础设施：音频虚拟线缆
-为了解决 Linux 下音频设备索引漂移及“静默调试”需求，必须先建立虚拟环回链路。
 ```bash
-# 创建 CADE_Speaker (Sink) 和 CADE_Mic (Source) 并完成内部桥接
+# 1. 创建环境 (推荐 Python 3.10)
+conda create -n CADE -y python=3.10
+conda activate CADE
+
+# 2. 安装 ROS 构建工具
+# Fedora/开发环境: catkin_make 是由这个包提供的，不是 pip
+conda install -c robostack-release ros-noetic-catkin ros-noetic-rosbash -y
+
+# 3. 安装项目依赖
+pip install -r requirements.txt
+```
+
+### B. ROS 桥接依赖
+为了让 Conda 隔离环境识别 ROS 资源，项目依赖 rospkg 与 catkin_pkg（已包含在 requirements.txt 中，无需手动执行 pip）。
+* **Ubuntu 20.04 (实机)**: 
+  1. 系统层安装：`sudo apt install ros-noetic-desktop-full`
+  2. Conda 环境内：`pip install rospkg catkin_pkg` (允许隔离环境访问系统 ROS 资源)
+* **Fedora (开发)**: 
+  1. 直接在 Conda 环境内：`pip install rospkg catkin_pkg`
+
+---
+
+## 2. ROS 工作空间编译与环境激活
+
+CADE 的源码位于项目根目录的 `src/` 文件夹下。在运行任何节点前，必须先完成编译并激活环境。
+
+### 核心步骤：编译并 Source
+1. **编译 (仅需执行一次)**:
+   ```bash
+   conda activate CADE
+   # 在 CADE 项目根目录下运行，生成 build/ 和 devel/ 文件夹
+   catkin_make -DCMAKE_BUILD_TYPE=Release
+   ```
+
+2. **激活环境 (每个新终端必做)**:
+   * **Ubuntu 20.04**:
+     ```bash
+     source /opt/ros/noetic/setup.zsh    # 1. 激活系统 ROS
+     source devel/setup.zsh             # 2. 激活 CADE 工作空间
+     ```
+   * **Fedora (Conda)**:
+     ```bash
+     source devel/setup.zsh             # 直接激活当前目录生成的配置
+     ```
+
+---
+
+## 3. 环境变量配置 (`.env`)
+
+项目使用 `.env` 文件隔离配置。禁止在代码中硬编码任何 API Key。
+
+1. 执行 `cp .env.example .env`。
+2. 配置参数：
+   * `CADE_MODE`: `CLOUD` (调用 API) 或 `LOCAL` (调用本地 Ollama)。
+   * `CADE_CLOUD_API_KEY`: 你的 DeepSeek 或 DashScope 密钥。
+   * `CADE_LOCAL_MODEL`: 本地运行的模型名称 (默认 `qwen3:8b`)。
+
+---
+
+## 4. 语音链路配置
+
+### A. 开发环境：Fedora + 虚拟音频 (静默测试)
+建立虚拟线缆链路：`测试脚本 -> 虚拟扬声器 (CADE_Speaker) -> 虚拟麦克风 (Monitor) -> CADE ASR`。
+
+**1. 准备工作**:
+```bash
+sudo dnf install pulseaudio-utils pavucontrol
 bash scripts/setup_virtual_audio.sh
 ```
 
-### 2. 启动语音交互节点
-启动 ASR (SenseVoice) 与 TTS (VITS) 节点。系统会自动通过字符串匹配锁定虚拟设备。
+**2. 运行静默测试**:
+* **终端 1**: 启动语音节点
+  ```bash
+  roslaunch asr_tts speech.launch mic_id:=CADE_Speaker.monitor speaker_id:=CADE_Speaker
+  ```
+* **终端 2**: 运行注入脚本
+  ```bash
+  bash test_me.sh
+  ```
+*注意：在 `pavucontrol` 中确保 `asr_node` 正在从 "Monitor of CADE_Speaker" 录制。*
+
+### B. 部署环境：Ubuntu 20.04 (实机)
+**1. 确认硬件 ID**: 使用 `arecord -l` 确定录音设备 ID（如 `hw:1,0`）。
+**2. 启动实机语音**:
 ```bash
-# mic_id 和 speaker_id 传入 "Mic" 和 "Speaker" 即可精准锁定虚拟接口
-roslaunch asr_tts speech.launch mic_id:="Mic" speaker_id:="Speaker"
+roslaunch asr_tts speech.launch mic_id:="hw:1,0" speaker_id:="hw:1,0"
 ```
 
-### 3. 运行测试分发器
-在不方便说话的环境下，通过预录制指令文件测试全链路：
-```bash
-bash test_me.sh
-```
+---
+
+## 5. 本地 LLM 加速 (Ollama)
+
+在边缘端（Orin）部署时，推荐使用 Ollama：
+1. **启动模型**: `ollama pull qwen3:8b && ollama serve`。
+2. **协议兼容**: CADE 通过 OpenAI 协议连接本地端口 `11434`。代码内已内置 `trust_env=False` 逻辑，**自动跳过系统代理干扰**。
 
 ---
 
-## 🏗️ 核心架构特性 (Key Features)
+## 6. 项目结构与工具
 
-### 1. 生产者-消费者音频流
-为了解决 `sd.rec()` 同步录音带来的盲区丢包问题，ASR 节点实现了**不间断流式架构**：
-* **Producer (后台线程)**: `sd.InputStream` 零间断采集采样点并推入队列。
-* **Consumer (主线程)**: 从队列提取数据进行 Silero VAD 检测与文本转译，确保语音连贯性。
-
-### 2. 线性演化模型 (Linear Evolution)
-项目摒弃了复杂的类继承，采用版本线性更替。`body/robot.py` 集成了 V1 的空间记忆与 V2 的状态机管理，严格遵循 `IDLE -> THINKING -> EXECUTING -> SPEAKING` 状态切换。
+* **`test_me.sh`**: 交互式测试分发脚本，支持 10+ 种机器人指令注入。
+* **`ARCHITECTURE.md`**: 详细说明 `body` (硬件接口), `brain` (LLM 决策), `bridge` (通信层) 的代码实现。
+* **`config.py`**: 配置抽象层，负责从 `.env` 自动读取并验证参数。
 
 ---
 
-## 🚧 当前的“让步”与未来路线图 (Roadmap)
+## 常见问题 (FAQ)
 
-### 🌙 当前的“工程让步”
-目前的系统为了在 PC 开发环境下快速跑通全链路，做了一些务实的折衷：
-* **虚拟音频环回**: 使用 `null-sink` 模拟麦克风，解决了物理环境噪音和调试不便的问题，但尚未处理真实麦克风下的回声消除 (AEC)。
-* **Mock 执行器**: 机器人动作在 `robot.py` 中主要是语义层面的模拟（如逻辑移动、物体状态变更），暂未接入物理底盘驱动。
-* **云端 LLM**: 当前默认通过 API 调用云端大模型，依赖网络稳定性。
+> **Q: `catkin_make` 命令找不到？**
+> A: 这通常是因为你没有在 Conda 环境中安装 `ros-noetic-catkin` 或者没有 `conda activate CADE`。请检查第一步安装步骤。
 
-### ☀️ 未来演进方向
-* **[感知升级]**: 接入视觉 VLM 模块，将 ASR 识别出的指令与视觉空间特征（Vision-Language Alignment）进行深度对齐。
-* **[端侧部署]**: 将 Brain 模块迁移至 **NVIDIA Jetson Orin**，实现基于 Ollama 的纯本地推理，保障隐私与响应延迟。
-* **[物理接入]**: 将 `robot_interface.py` 的具体实现从 Mock 切换为真实的硬件驱动（如移动底盘、机械臂控制）。
-* **[多模态反馈]**: 实现 TTS 语调与机器人表情/动作的同步。
+> **Q: 为什么要在 Conda 里 pip 安装 `rospkg`？**
+> A: Conda 环境是物理隔离的。安装 `rospkg` 相当于在你的隔离环境里安装了一个“导航仪”，让 Python 能准确找到并加载系统路径下的 ROS 消息类型。
 
----
-
-## 📂 项目结构 (Structure)
-
-* `brain/`: LLM 客户端、Prompt 工程与数据 Schema
-* `body/`: 机器人抽象接口与具体实现
-* `bridge/`: ROS 消息桥接与业务逻辑协调
-* `src/asr_tts/`: 基于 Sherpa-ONNX 的底层语音处理节点
-* `scripts/`: 系统初始化与环境配置脚本
-
----
-
-## 👨‍💻 开发者
-**Huyanshen** (University of Science and Technology of China)
-
----
-
+> **Q: 连接本地 Ollama 报错？**
+> A: 请检查 `.env` 中的 `CADE_LOCAL_BASE_URL` 是否包含 `/v1` 后缀（如 `http://localhost:11434/v1`）。
