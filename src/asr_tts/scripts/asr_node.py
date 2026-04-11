@@ -1,19 +1,23 @@
-# ！/home/tiger/miniforge3/envs/ros/bin/python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+ASR Node - VAD + Offline (Non-streaming) ASR
+Uses SenseVoice/Whisper/Paraformer/Transducer models with Silero VAD.
+Publishes recognized text to /asr topic (std_msgs/String).
+"""
 
 import wave
 import sherpa_onnx
 import numpy as np
-import threading
 import queue
 from pathlib import Path
 import sys
 import argparse
+import os
+
 import rospy
 from std_msgs.msg import String
 import rospkg
-import os
-pkg_path = rospkg.RosPack().get_path('asr_tts')
-
 
 try:
     import sounddevice as sd
@@ -22,8 +26,10 @@ except ImportError:
     print()
     print("  pip install sounddevice")
     print()
-    print("to install it")
     sys.exit(-1)
+
+
+pkg_path = rospkg.RosPack().get_path('asr_tts')
 
 
 def get_args():
@@ -34,7 +40,6 @@ def get_args():
     parser.add_argument(
         "--silero-vad-model",
         type=str,
-        # required=True,
         default=os.path.join(pkg_path, "models/silero_vad.onnx"),
         help="Path to silero_vad.onnx",
     )
@@ -42,7 +47,10 @@ def get_args():
     parser.add_argument(
         "--tokens",
         type=str,
-        default=os.path.join(pkg_path, "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt"),
+        default=os.path.join(
+            pkg_path,
+            "models/sherpa-onnx-whisper-small.en/small.en-tokens.txt",
+        ),
         help="Path to tokens.txt",
     )
 
@@ -76,7 +84,7 @@ def get_args():
 
     parser.add_argument(
         "--sense-voice",
-        default=os.path.join(pkg_path, "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx"),
+        default="",
         type=str,
         help="Path to the model.onnx from SenseVoice",
     )
@@ -91,37 +99,38 @@ def get_args():
     parser.add_argument(
         "--provider",
         type=str,
-        default="cpu",
+        default="cuda",
         choices=["cpu", "cuda", "coreml"],
         help="Inference provider: cpu, cuda, coreml",
     )
 
     parser.add_argument(
         "--whisper-encoder",
-        # default=os.path.join(pkg_path, "models/sherpa-onnx-whisper-medium.en/medium.en-encoder.int8.onnx"),
-        default='',
+        default=os.path.join(
+            pkg_path,
+            "models/sherpa-onnx-whisper-small.en/small.en-encoder.int8.onnx",
+        ),
         type=str,
         help="Path to whisper encoder model",
     )
 
     parser.add_argument(
         "--whisper-decoder",
-        # default=os.path.join(pkg_path, "models/sherpa-onnx-whisper-medium.en/medium.en-decoder.int8.onnx"),
-        default='',
+        default=os.path.join(
+            pkg_path,
+            "models/sherpa-onnx-whisper-small.en/small.en-decoder.int8.onnx",
+        ),
         type=str,
         help="Path to whisper decoder model",
     )
 
     parser.add_argument(
         "--whisper-language",
-        default="",
+        default="en",
         type=str,
-        help="""It specifies the spoken language in the input file.
+        help="""Spoken language in the input file.
         Example values: en, fr, de, zh, jp.
-        Available languages for multilingual models can be found at
-        https://github.com/openai/whisper/blob/main/whisper/tokenizer.py#L10
-        If not specified, we infer the language from the input audio file.
-        """,
+        If not specified, language is inferred from audio.""",
     )
 
     parser.add_argument(
@@ -129,20 +138,14 @@ def get_args():
         default="transcribe",
         choices=["transcribe", "translate"],
         type=str,
-        help="""For multilingual models, if you specify translate, the output
-        will be in English.
-        """,
+        help="For multilingual models, translate outputs in English.",
     )
 
     parser.add_argument(
         "--whisper-tail-paddings",
         default=-1,
         type=int,
-        help="""Number of tail padding frames.
-        We have removed the 30-second constraint from whisper, so you need to
-        choose the amount of tail padding frames by yourself.
-        Use -1 to use a default value for tail padding.
-        """,
+        help="Number of tail padding frames. Use -1 for default.",
     )
 
     parser.add_argument(
@@ -177,65 +180,56 @@ def get_args():
         "--blank-penalty",
         type=float,
         default=0.0,
-        help="""
-        The penalty applied on blank symbol during decoding.
-        Note: It is a positive value that would be applied to logits like
-        this `logits[:, 0] -= blank_penalty` (suppose logits.shape is
-        [batch_size, vocab] and blank id is 0).
-        """,
+        help="Penalty applied on blank symbol during decoding.",
     )
 
     parser.add_argument(
         "--decoding-method",
         type=str,
         default="greedy_search",
-        help="""Valid values are greedy_search and modified_beam_search.
-        modified_beam_search is valid only for transducer models.
-        """,
+        help="Valid values: greedy_search, modified_beam_search.",
     )
+
     parser.add_argument(
         "--debug",
         type=bool,
         default=False,
-        help="True to show debug messages when loading modes.",
+        help="Show debug messages when loading models.",
     )
 
     parser.add_argument(
         "--sample-rate",
         type=int,
         default=16000,
-        help="""Sample rate of the feature extractor. Must match the one
-        expected by the model.""",
+        help="Sample rate of the feature extractor.",
     )
 
     parser.add_argument(
         "--feature-dim",
         type=int,
         default=80,
-        help="Feature dimension. Must match the one expected by the model",
+        help="Feature dimension. Must match the model expectation.",
     )
 
     parser.add_argument(
         "--hr-lexicon",
         type=str,
         default="",
-        help="If not empty, it is the lexicon.txt for homophone replacer",
+        help="Lexicon.txt for homophone replacer (optional)",
     )
 
     parser.add_argument(
         "--hr-rule-fsts",
         type=str,
         default="",
-        help="If not empty, it is the replace.fst for homophone replacer",
+        help="Replace.fst for homophone replacer (optional)",
     )
 
     parser.add_argument(
         "--save-audio",
         type=str,
         default=os.path.join(pkg_path, "recordings"),
-        help="Folder path to save recorded audio (e.g., asr_tts/recordings). "
-             "VAD segments saved as test-1.wav, test-2.wav, etc. "
-             "Full recording saved as test.wav on interrupt.",
+        help="Folder path to save recorded audio segments.",
     )
 
     return parser.parse_known_args()
@@ -257,9 +251,7 @@ def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
         assert len(args.whisper_decoder) == 0, args.whisper_decoder
         assert len(args.moonshine_preprocessor) == 0, args.moonshine_preprocessor
         assert len(args.moonshine_encoder) == 0, args.moonshine_encoder
-        assert (
-            len(args.moonshine_uncached_decoder) == 0
-        ), args.moonshine_uncached_decoder
+        assert len(args.moonshine_uncached_decoder) == 0, args.moonshine_uncached_decoder
         assert len(args.moonshine_cached_decoder) == 0, args.moonshine_cached_decoder
 
         assert_file_exists(args.encoder)
@@ -287,9 +279,7 @@ def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
         assert len(args.whisper_decoder) == 0, args.whisper_decoder
         assert len(args.moonshine_preprocessor) == 0, args.moonshine_preprocessor
         assert len(args.moonshine_encoder) == 0, args.moonshine_encoder
-        assert (
-            len(args.moonshine_uncached_decoder) == 0
-        ), args.moonshine_uncached_decoder
+        assert len(args.moonshine_uncached_decoder) == 0, args.moonshine_uncached_decoder
         assert len(args.moonshine_cached_decoder) == 0, args.moonshine_cached_decoder
 
         assert_file_exists(args.paraformer)
@@ -311,9 +301,7 @@ def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
         assert len(args.whisper_decoder) == 0, args.whisper_decoder
         assert len(args.moonshine_preprocessor) == 0, args.moonshine_preprocessor
         assert len(args.moonshine_encoder) == 0, args.moonshine_encoder
-        assert (
-            len(args.moonshine_uncached_decoder) == 0
-        ), args.moonshine_uncached_decoder
+        assert len(args.moonshine_uncached_decoder) == 0, args.moonshine_uncached_decoder
         assert len(args.moonshine_cached_decoder) == 0, args.moonshine_cached_decoder
 
         assert_file_exists(args.sense_voice)
@@ -332,9 +320,7 @@ def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
         assert_file_exists(args.whisper_decoder)
         assert len(args.moonshine_preprocessor) == 0, args.moonshine_preprocessor
         assert len(args.moonshine_encoder) == 0, args.moonshine_encoder
-        assert (
-            len(args.moonshine_uncached_decoder) == 0
-        ), args.moonshine_uncached_decoder
+        assert len(args.moonshine_uncached_decoder) == 0, args.moonshine_uncached_decoder
         assert len(args.moonshine_cached_decoder) == 0, args.moonshine_cached_decoder
 
         recognizer = sherpa_onnx.OfflineRecognizer.from_whisper(
@@ -377,37 +363,37 @@ def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
 
 
 class ASRNode:
+    """ROS node for VAD-based offline ASR."""
+
     def __init__(self, node_name: str):
         rospy.init_node(node_name)
         self.publisher = rospy.Publisher("asr", String, queue_size=10)
 
     def run(self):
-        """主循环 - 直接在主线程运行，不使用子线程"""
-        # 1. 获取所有可用音频设备
+        """Main loop - runs on main thread using PortAudio callback + queue."""
         devices = sd.query_devices()
         if len(devices) == 0:
-            rospy.logerr("❌ 未发现任何音频设备！")
+            rospy.logerr("No audio devices found!")
             sys.exit(1)
 
-        # 2. 从 ROS 参数服务器获取目标设备名称 (Target_ASR_NAME)
-        # 如果 launch 没传，默认用 'default' 尝试寻找
         target_name = rospy.get_param("~device_name", "default")
-        rospy.loginfo(f"🔍 正在尝试锁定音频设备: \"{target_name}\"")
+        rospy.loginfo(f"Trying to lock audio device: \"{target_name}\"")
 
-        # 3. 确定性查找：根据名字找 Index
         default_input_device_idx = None
         for i, d in enumerate(devices):
             if target_name in d['name'] and d['max_input_channels'] > 0:
                 default_input_device_idx = i
                 break
 
-        # 4. 强制校验：找不到直接退出，不准乱猜
         if default_input_device_idx is None:
-            rospy.logerr(f"❌ 无法找到指定的设备: \"{target_name}\"")
-            rospy.logerr("请运行 'python3 -m sounddevice' 确认名字是否正确。")
+            rospy.logerr(f"Cannot find device: \"{target_name}\"")
+            rospy.logerr("Run 'python3 -m sounddevice' to check device names.")
             sys.exit(1)
 
-        print(f"✅ 成功锁定麦克风: [{default_input_device_idx}] {devices[default_input_device_idx]['name']}")
+        print(
+            f"Microphone locked: [{default_input_device_idx}] "
+            f"{devices[default_input_device_idx]['name']}"
+        )
 
         args, _ = get_args()
         assert_file_exists(args.tokens)
@@ -415,12 +401,11 @@ class ASRNode:
 
         assert args.num_threads > 0, args.num_threads
 
-        # 获取设备原生采样率
         device_sample_rate = int(devices[default_input_device_idx]['default_samplerate'])
-        target_sample_rate = args.sample_rate  # 16000 for ASR
+        target_sample_rate = args.sample_rate
 
         if device_sample_rate != target_sample_rate:
-            print(f'设备采样率: {device_sample_rate} Hz, 重采样到: {target_sample_rate} Hz')
+            print(f"Device sample rate: {device_sample_rate} Hz, resampling to: {target_sample_rate} Hz")
 
         print("Creating recognizer. Please wait...")
         recognizer = create_recognizer(args)
@@ -434,9 +419,6 @@ class ASRNode:
 
         vad = sherpa_onnx.VoiceActivityDetector(config, buffer_size_in_seconds=100)
 
-        # 使用设备采样率读取
-        samples_per_read = int(0.1 * device_sample_rate)  # 0.1 second
-
         print("Started! Please speak")
 
         save_folder = Path(args.save_audio) if args.save_audio else None
@@ -448,22 +430,23 @@ class ASRNode:
             save_folder.mkdir(parents=True, exist_ok=True)
 
         buffer = np.array([])
+        texts = []
+        speech_segments = []
 
-        # 重采样函数（简单线性插值，避免 scipy 内存问题）
+        # --- Helper functions ---
+
         def resample_audio(audio, from_rate, to_rate):
+            """Resample audio using linear interpolation."""
             if from_rate == to_rate:
                 return audio
-            import numpy as np
             ratio = to_rate / from_rate
             new_length = int(len(audio) * ratio)
             old_indices = np.arange(len(audio))
             new_indices = np.linspace(0, len(audio) - 1, new_length)
             return np.interp(new_indices, old_indices, audio)
-        texts = []
-
-        speech_segments = []
 
         def save_wav(filepath, audio_data):
+            """Save audio data to WAV file."""
             if isinstance(audio_data, list):
                 audio_data = np.array(audio_data)
             audio_int16 = (audio_data * 32767).astype(np.int16)
@@ -474,7 +457,10 @@ class ASRNode:
                 f.writeframes(audio_int16.tobytes())
 
         def save_wav_from_samples_list(filepath, samples_list):
-            all_audio = np.concatenate([np.array(s) if isinstance(s, list) else s for s in samples_list])
+            """Concatenate and save multiple sample chunks to WAV file."""
+            all_audio = np.concatenate([
+                np.array(s) if isinstance(s, list) else s for s in samples_list
+            ])
             audio_int16 = (all_audio * 32767).astype(np.int16)
             with wave.open(str(filepath), 'wb') as f:
                 f.setnchannels(1)
@@ -482,78 +468,62 @@ class ASRNode:
                 f.setframerate(16000)
                 f.writeframes(audio_int16.tobytes())
 
-        # 创建音频数据队列（生产者-消费者模式）
+        # --- Audio capture via PortAudio callback ---
         audio_queue = queue.Queue(maxsize=1000)
 
-        # 音频回调函数 - 运行在 PortAudio 后台线程
-        def audio_callback(indata, frames, time, status=None):
-            """将音频数据放入队列"""
+        def audio_callback(indata, frames, time_info=None, status=None):
             if status:
-                print(f"音频流状态: {status}", file=sys.stderr)
-            # 拷贝数据以避免被覆盖，非阻塞方式放入队列
+                print(f"Audio stream status: {status}", file=sys.stderr)
             try:
                 audio_queue.put_nowait(indata.copy())
             except queue.Full:
-                # 队列已满，丢弃数据（避免阻塞音频线程）
                 pass
 
-        # 使用 sd.InputStream 进行不间断流式录音
+        # --- Main processing loop ---
         try:
             with sd.InputStream(
                 device=default_input_device_idx,
                 channels=1,
                 callback=audio_callback,
                 samplerate=device_sample_rate,
-                dtype='float32'
+                dtype='float32',
             ):
-                print("✅ 音频流已启动，开始监听...")
-                print("Started! Please speak")
+                print("Audio stream started, listening...")
 
                 while True:
-                    # 1. 从队列获取音频数据（阻塞等待）
                     indata = audio_queue.get()
                     samples = indata.flatten()
 
-                    # 2. 计算并显示当前音频块的振幅（调试用）
-                    rms = np.sqrt(np.mean(samples**2))
+                    rms = np.sqrt(np.mean(samples ** 2))
                     max_amp = np.max(np.abs(samples))
-                    print(f"[Audio] RMS: {rms:.6f}, Max: {max_amp:.6f}", end='\r')
 
-                    # 3. 重采样到 16000 Hz (如果需要)
                     if device_sample_rate != target_sample_rate:
                         samples = resample_audio(samples, device_sample_rate, target_sample_rate)
 
-                    # 4. 保存所有样本（如果需要）
                     if all_samples is not None:
                         all_samples.append(samples)
 
-                    # 5. 处理 VAD
                     buffer = np.concatenate([buffer, samples])
                     while len(buffer) > window_size:
                         vad.accept_waveform(buffer[:window_size])
                         buffer = buffer[window_size:]
 
-                    # 6. 收集 VAD 检测到的语音片段
                     while not vad.empty():
                         speech_segments.append(vad.front.samples)
                         vad.pop()
 
-                    # 7. 处理语音片段（如果有）
                     if speech_segments:
-                        # 只处理一个语音片段，避免阻塞主循环
                         speech_samples = speech_segments.pop(0)
                         stream = recognizer.create_stream()
                         stream.accept_waveform(target_sample_rate, speech_samples)
-
-                        # 8. 执行 ASR 识别
                         recognizer.decode_stream(stream)
 
-                        # 9. 处理识别结果
                         text = stream.result.text.strip().lower()
                         if len(text):
                             idx = len(texts)
                             texts.append(text)
                             print(f"\n[speaker0]: {text}")
+
                             asr_rst = String()
                             asr_rst.data = text
                             self.publisher.publish(asr_rst)
@@ -565,7 +535,7 @@ class ASRNode:
                                 print(f"VAD segment saved to {segment_path}")
 
         except KeyboardInterrupt:
-            print("\nCaught Ctrl + C. Exiting")
+            print("\nCaught Ctrl+C. Exiting")
             if save_folder and all_samples:
                 save_wav_from_samples_list(save_folder / f"{base_name}.wav", all_samples)
                 print(f"Full recording saved to {save_folder / f'{base_name}.wav'}")
@@ -573,8 +543,6 @@ class ASRNode:
 
 def main():
     node = ASRNode("asr_node")
-    # 直接在主线程运行，不使用 rospy.spin()
-    # 因为 ASR 节点只发布消息，不需要处理回调
     node.run()
 
 

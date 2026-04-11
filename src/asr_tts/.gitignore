@@ -1,2 +1,17 @@
-# 排除模型文件
+# Exclude model files from version control
 models/*
+recordings/
+src/
+include/
+
+# Audio output (large wav files)
+test/audio_output/
+test/voice_comparison/
+
+# Python cache
+__pycache__/
+test/__pycache__/
+**/__pycache__/
+
+# python-api-examples (official examples, not needed in repo)
+python-api-examples/

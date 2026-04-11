@@ -1,10 +1,10 @@
-# Dependencies for dynamic-vad-asr.py
-# Python version: 3.10
+# Dependencies for asr_tts ROS package
+# Python >= 3.8
 
 # Core dependencies
 sherpa-onnx
 numpy
 
-# Audio input
+# Audio I/O
 sounddevice
 soundfile

@@ -207,5 +207,9 @@ include_directories(
 catkin_install_python(PROGRAMS
   scripts/asr_node.py
   scripts/tts_node.py
+  scripts/streaming_asr_endpoint_node.py
+  scripts/vad_streaming_asr_node.py
+  scripts/dynamic_vad_asr_node.py
+  scripts/dynamic_vad_streaming_asr_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

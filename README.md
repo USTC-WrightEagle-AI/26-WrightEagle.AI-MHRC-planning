@@ -98,7 +98,7 @@ roslaunch asr_tts speech.launch mic_id:="hw:1,0" speaker_id:="hw:1,0"
 
 ---
 
-## 5. 本地 LLM 加速 (Ollama)
+## 6. 本地 LLM 加速 (Ollama)
 
 在边缘端（Orin）部署时，推荐使用 Ollama：
 1. **启动模型**: `ollama pull qwen3:8b && ollama serve`。

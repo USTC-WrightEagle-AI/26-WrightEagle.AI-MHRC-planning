@@ -2,7 +2,7 @@
 <package format="2">
   <name>asr_tts</name>
   <version>0.0.0</version>
-  <description>The asr_tts package</description>
+  <description>ROS package for speech recognition (ASR) and text-to-speech (TTS) using sherpa-onnx. Supports multiple ASR modes: VAD+offline, streaming, dynamic speaker registration.</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->
