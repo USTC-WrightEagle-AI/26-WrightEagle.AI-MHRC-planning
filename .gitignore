@@ -35,4 +35,6 @@ build/
 devel/
 logs/
 .catkin_workspace
+
+# aider 相关
 .aider*
