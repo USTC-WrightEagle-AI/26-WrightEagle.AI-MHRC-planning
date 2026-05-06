@@ -623,6 +623,81 @@ class Robot(RobotInterface):
         self.set_state(RobotState.IDLE)
         return result
 
+    # ==================== 动态世界模型更新 ====================
+
+    def add_person(self, name: str, cloth_color: Optional[str] = None,
+                   gesture: Optional[str] = None, location: Optional[str] = None,
+                   beacon: Optional[str] = None, info: Optional[str] = None) -> bool:
+        """向世界模型添加新人物（供视觉模块等外部感知系统调用）"""
+        if name in self.known_people:
+            self._log_info(f"[WorldModel] {name} 已存在，将更新信息")
+        self.known_people[name] = {
+            "name": name,
+            "cloth_color": cloth_color or "unknown",
+            "gesture": gesture or "unknown",
+            "location": location or "unknown",
+            "beacon": beacon or "unknown",
+            "info": info or f"This is {name}.",
+        }
+        self._log_info(f"[WorldModel] +人物: {name} (location={location}, cloth={cloth_color}, gesture={gesture})")
+        return True
+
+    def update_person(self, name: str, **kwargs) -> bool:
+        """更新世界模型中人物的属性（位置、手势、衣服等），不存在则自动创建"""
+        if name not in self.known_people:
+            self._log_info(f"[WorldModel] 未知人物 {name}，自动创建")
+            self.add_person(name)
+        for key, value in kwargs.items():
+            old_val = self.known_people[name].get(key)
+            self.known_people[name][key] = value
+            self._log_info(f"[WorldModel] ~人物 {name}.{key}: {old_val} → {value}")
+        return True
+
+    def add_object(self, name: str, category: Optional[str] = None,
+                   location: Optional[str] = None, placement: Optional[str] = None,
+                   position: Optional[list] = None, **extra_props) -> bool:
+        """向世界模型添加新物体（供视觉模块等外部感知系统调用）"""
+        if name in self.known_objects:
+            self._log_info(f"[WorldModel] {name} 已存在，将更新信息")
+        obj = {"name": name, "category": category or "unknown"}
+        if location:
+            obj["location"] = location
+        obj["placement"] = placement or location or "unknown"
+        if position:
+            obj["position"] = position
+        obj.update(extra_props)
+        self.known_objects[name] = obj
+        self._log_info(f"[WorldModel] +物体: {name} (category={category}, placement={obj['placement']})")
+        return True
+
+    def update_object(self, name: str, **kwargs) -> bool:
+        """更新世界模型中物体的属性，不存在则自动创建"""
+        if name not in self.known_objects:
+            self._log_info(f"[WorldModel] 未知物体 {name}，自动创建")
+            self.add_object(name)
+        for key, value in kwargs.items():
+            old_val = self.known_objects[name].get(key)
+            self.known_objects[name][key] = value
+            self._log_info(f"[WorldModel] ~物体 {name}.{key}: {old_val} → {value}")
+        return True
+
+    def get_world_state(self) -> str:
+        """获取当前世界模型的文本摘要（用于注入 LLM 上下文）"""
+        lines = ["--- Current World State ---"]
+        lines.append(f"Position: {self.current_position}")
+        lines.append(f"Holding: {self.holding_object or 'nothing'}")
+        lines.append("")
+        lines.append("Known People:")
+        for p in self.known_people.values():
+            lines.append(f"  {p['name']}: at {p['location']}, beacon {p['beacon']}, "
+                        f"cloth={p['cloth_color']}, gesture={p['gesture']}")
+        lines.append("")
+        lines.append("Known Objects:")
+        for obj in self.known_objects.values():
+            loc = obj.get('placement', obj.get('location', 'unknown'))
+            lines.append(f"  {obj['name']}: category={obj.get('category', '-')}, at {loc}")
+        return "\n".join(lines)
+
 
 # ==================== 测试代码 ====================
 

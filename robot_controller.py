@@ -319,6 +319,41 @@ class RobotController:
             success_rate = (self.successful_actions / self.total_interactions) * 100
             print(f"   成功率: {success_rate:.1f}%")
 
+    def observe(self, observation: str, update_world: bool = True) -> str:
+        """
+        注入外部观测到对话上下文（供视觉模块、传感器等调用）
+
+        典型用法：
+            # 视觉模块看到 Paris 在储藏架挥手
+            controller.robot.update_person('paris', location='storage_rack', gesture='waving')
+            controller.observe('Vision: Paris spotted at storage rack, waving.')
+
+            # 下一轮 process_input() 时 LLM 就能看到这个观测
+
+        Args:
+            observation: 观测描述文本
+            update_world: 是否同时刷新 world_state 摘要到系统提示词
+
+        Returns:
+            str: 当前世界状态摘要
+        """
+        # 将观测作为 system 消息注入对话历史
+        self.conversation_history.append({
+            "role": "system",
+            "content": f"[OBSERVATION] {observation}"
+        })
+        print(f"\n👁️  [OBSERVE] {observation}")
+
+        # 可选：更新 world_state 注入到系统提示词
+        world_state = self.robot.get_world_state()
+        if update_world:
+            # 替换或追加 world state 到系统提示词
+            base_prompt = self.system_prompt.split("--- Current World State ---")[0].rstrip()
+            self.system_prompt = base_prompt + "\n\n" + world_state
+
+        print(f"\n📊 [WORLD STATE]\n{world_state}")
+        return world_state
+
     def reset(self):
         """重置控制器状态"""
         self.conversation_history.clear()

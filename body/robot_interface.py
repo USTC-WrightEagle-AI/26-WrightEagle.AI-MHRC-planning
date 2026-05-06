@@ -148,6 +148,37 @@ class RobotInterface(ABC):
         """问放置处某类物品的属性"""
         pass
 
+    # ==================== 动态世界模型更新 ====================
+
+    @abstractmethod
+    def add_person(self, name: str, cloth_color: Optional[str] = None,
+                   gesture: Optional[str] = None, location: Optional[str] = None,
+                   beacon: Optional[str] = None, info: Optional[str] = None) -> bool:
+        """向世界模型添加新人物"""
+        pass
+
+    @abstractmethod
+    def update_person(self, name: str, **kwargs) -> bool:
+        """更新世界模型中人物的属性（位置、手势、衣服等）"""
+        pass
+
+    @abstractmethod
+    def add_object(self, name: str, category: Optional[str] = None,
+                   location: Optional[str] = None, placement: Optional[str] = None,
+                   position: Optional[list] = None, **extra_props) -> bool:
+        """向世界模型添加新物体"""
+        pass
+
+    @abstractmethod
+    def update_object(self, name: str, **kwargs) -> bool:
+        """更新世界模型中物体的属性（位置等）"""
+        pass
+
+    @abstractmethod
+    def get_world_state(self) -> str:
+        """获取当前世界模型的文本摘要（用于注入 LLM 上下文）"""
+        pass
+
     def get_state(self) -> RobotState:
         """获取当前状态"""
         return self.state
