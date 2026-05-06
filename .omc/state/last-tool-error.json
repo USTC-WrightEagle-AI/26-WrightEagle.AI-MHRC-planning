@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"/opt/anaconda3/envs/CADE/bin/python -c \\\"\\nfrom body.robot import Robot\\n\\n# Test guideClothPrsFromBeacToBeac with fresh state\\nr = Robot()\\n# alice: red cloth, beacon_1. Should work with ...",
-  "error": "Exit code 1\nTraceback (most recent call last):\n  File \"<string>\", line 12, in <module>\nAssertionError\n🤖 LARA 初始化成功\n   当前位置: home\n   已知位置: ['home', '起点', 'start_point', 'kitchen', '厨房', 'living_room', '客厅', 'bedroom', '卧室', 'table', '桌子', 'desk', '书桌', 'beacon_1', 'beacon_2', 'beacon_3', 'entrance', 'hallway']\n   已知物体: ['apple', 'bottle', 'cup', 'book', 'orange', 'plate', 'spoon', 'key', 'remote']\n   模式: 纯控制台模拟\n\n🧭 [GuideClothPrsFromBeacToBeac] 引导穿 red 衣服的人从 beacon_1 到 entrance\n✓ 已引导 alice (clot...",
-  "timestamp": "2026-05-06T04:18:46.664Z",
-  "retry_count": 1
-}

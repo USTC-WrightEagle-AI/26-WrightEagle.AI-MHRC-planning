@@ -36,5 +36,8 @@ devel/
 logs/
 .catkin_workspace
 
-# aider 相关
+# ai 工具相关
 .aider*
+.claude
+.omc
+
