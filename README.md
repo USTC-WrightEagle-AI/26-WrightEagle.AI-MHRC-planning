@@ -98,6 +98,70 @@ roslaunch asr_tts speech.launch mic_id:="hw:1,0" speaker_id:="hw:1,0"
 
 ---
 
+## 5. CADE 主控制器启动
+
+编译并配置完成后，启动 CADE 大脑控制器以接收语音指令。
+
+### A. ROS 语音模式（生产环境）
+
+启动顺序：
+```bash
+# 终端 1: 启动 ROS core
+roscore
+
+# 终端 2: 启动 ASR/TTS 语音节点
+roslaunch asr_tts speech.launch
+
+# 终端 3: 启动 CADE 主控制器
+python main.py
+```
+
+`main.py` 支持的参数：
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `--mode` | 提示词模式: `default`(标准) / `compact`(精简) / `simple`(简化) / `debug`(调试) | `--mode compact` |
+| `--no-thought` | 不显示 LLM 的思考过程 | `--no-thought` |
+| `--env` | 自定义环境上下文，注入到系统提示词中 | `--env "你在实验室桌子上"` |
+
+完整示例：
+```bash
+python main.py --mode debug --env "你正坐在 Fedora 实验室的桌子上，目前只能通过语音与人交流。"
+```
+
+启动后，CADE 进入等待状态。对着麦克风说话（参考终端输出的测试案例），ASR 识别后交由 LLM 决策，机器人执行动作并通过 TTS 语音回复。
+
+### B. 控制台交互模式（开发调试）
+
+无需 ROS，直接在终端中与 LLM 对话测试决策链路：
+
+```python
+python -c "
+from robot_controller import RobotController
+controller = RobotController()
+controller.interactive_mode()
+"
+```
+
+在交互模式下输入 quit/exit 退出，输入 status 查看机器人状态，输入 stats 查看统计。
+
+### C. 快捷测试：静默链路
+
+如果已按第 4 节完成虚拟音频配置：
+
+```bash
+# 终端 1: 语音节点
+roslaunch asr_tts speech.launch mic_id:=CADE_Speaker.monitor speaker_id:=CADE_Speaker
+
+# 终端 2: CADE 控制器
+python main.py
+
+# 终端 3: 注入测试语音
+bash test_me.sh
+```
+
+---
+
 ## 6. 本地 LLM 加速 (Ollama)
 
 在边缘端（Orin）部署时，推荐使用 Ollama：
@@ -106,8 +170,10 @@ roslaunch asr_tts speech.launch mic_id:="hw:1,0" speaker_id:="hw:1,0"
 
 ---
 
-## 6. 项目结构与工具
+## 7. 项目结构与工具
 
+* **`main.py`**: ROS 语音模式入口，启动 `RosVoiceBridge` 进入 ASR→LLM→TTS 循环。
+* **`robot_controller.py`**: 主控制器，整合 Brain(LLM) 和 Body(Robot) 的感知-决策-执行循环。
 * **`test_me.sh`**: 交互式测试分发脚本，支持 10+ 种机器人指令注入。
 * **`ARCHITECTURE.md`**: 详细说明 `body` (硬件接口), `brain` (LLM 决策), `bridge` (通信层) 的代码实现。
 * **`config.py`**: 配置抽象层，负责从 `.env` 自动读取并验证参数。

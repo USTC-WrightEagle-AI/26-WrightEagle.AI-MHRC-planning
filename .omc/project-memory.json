@@ -1,0 +1,181 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1778038568847,
+  "projectRoot": "/Users/huyanshen/Projects/26-WrightEagle.AI-MHRC-planning",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "scripts",
+      "src"
+    ],
+    "gitBranches": {
+      "defaultBranch": "frankwang",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "body": {
+      "path": "body",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1778038568788,
+      "keyFiles": [
+        "__init__.py",
+        "robot.py",
+        "robot_bak_1.py",
+        "robot_interface.py"
+      ]
+    },
+    "brain": {
+      "path": "brain",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1778038568789,
+      "keyFiles": [
+        "__init__.py",
+        "llm_client.py",
+        "prompts.py",
+        "schemas.py"
+      ]
+    },
+    "bridge": {
+      "path": "bridge",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1778038568790,
+      "keyFiles": [
+        "__init__.py",
+        "ros_voice_bridge.py"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1778038568791,
+      "keyFiles": [
+        "gen_test_audio.py",
+        "setup_virtual_audio.sh"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1778038568791,
+      "keyFiles": []
+    },
+    "test_audio": {
+      "path": "test_audio",
+      "purpose": null,
+      "fileCount": 11,
+      "lastAccessed": 1778038568792,
+      "keyFiles": [
+        "1.wav",
+        "10.wav",
+        "11.wav",
+        "2.wav",
+        "3.wav"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "brain/prompts.py",
+      "accessCount": 14,
+      "lastAccessed": 1778042011262,
+      "type": "file"
+    },
+    {
+      "path": "brain/schemas.py",
+      "accessCount": 9,
+      "lastAccessed": 1778041681699,
+      "type": "file"
+    },
+    {
+      "path": "body/robot.py",
+      "accessCount": 8,
+      "lastAccessed": 1778042074821,
+      "type": "file"
+    },
+    {
+      "path": "body/robot_interface.py",
+      "accessCount": 3,
+      "lastAccessed": 1778041698773,
+      "type": "file"
+    },
+    {
+      "path": "robot_controller.py",
+      "accessCount": 3,
+      "lastAccessed": 1778041755450,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 2,
+      "lastAccessed": 1778042585956,
+      "type": "file"
+    },
+    {
+      "path": "config.py",
+      "accessCount": 1,
+      "lastAccessed": 1778039494206,
+      "type": "file"
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "accessCount": 1,
+      "lastAccessed": 1778039494307,
+      "type": "file"
+    },
+    {
+      "path": "main.py",
+      "accessCount": 1,
+      "lastAccessed": 1778039494361,
+      "type": "file"
+    },
+    {
+      "path": "bridge/ros_voice_bridge.py",
+      "accessCount": 1,
+      "lastAccessed": 1778039575386,
+      "type": "file"
+    },
+    {
+      "path": "brain/llm_client.py",
+      "accessCount": 1,
+      "lastAccessed": 1778039655560,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

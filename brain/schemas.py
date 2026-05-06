@@ -4,75 +4,209 @@
 使用 Pydantic 严格定义机器人的动作空间和决策输出格式
 """
 
-from typing import Literal, Union, Optional, List
-from pydantic import BaseModel, Field, field_validator
+from typing import Literal, Union, Optional
+from pydantic import BaseModel, Field
 
 
 # ==================== 动作类型定义 ====================
 
-class NavigateAction(BaseModel):
-    """导航动作 - 移动到指定位置"""
-    type: Literal["navigate"] = "navigate"
-    target: Union[str, List[float]] = Field(
-        ...,
-        description="目标位置，可以是语义标签(如'kitchen')或坐标[x,y,z]"
-    )
+# ==================== 导航类动作 (1种) ====================
 
-    @field_validator('target')
-    @classmethod
-    def validate_target(cls, v):
-        if isinstance(v, list):
-            if len(v) != 3:
-                raise ValueError("坐标必须是 [x, y, z] 格式")
-            if not all(isinstance(i, (int, float)) for i in v):
-                raise ValueError("坐标必须是数字")
-        return v
+class GoToLocAction(BaseModel):
+    """导航动作 - 去某地（如"去厨房然后找人"）"""
+    type: Literal["goToLoc"] = "goToLoc"
+    target: str = Field(..., description="目标位置（语义标签或坐标）")
+    then_find_person: Optional[bool] = Field(False, description="到达后是否寻找人")
 
 
-class PickAction(BaseModel):
-    """抓取动作 - 拾取物体"""
-    type: Literal["pick"] = "pick"
-    object_name: str = Field(..., description="物体名称")
-    object_id: Optional[int] = Field(None, description="物体ID（如果有多个同名物体）")
+# ==================== 人物操作类动作 (15种) ====================
+
+class FindPrsInRoomAction(BaseModel):
+    """在房间找特定姿态/手势的人"""
+    type: Literal["findPrsInRoom"] = "findPrsInRoom"
+    room: str = Field(..., description="房间名称")
+    gesture: Optional[str] = Field(None, description="姿态/手势描述（如 waving, sitting, standing）")
 
 
-class PlaceAction(BaseModel):
-    """放置动作 - 将物体放到指定位置"""
-    type: Literal["place"] = "place"
-    location: Union[str, List[float]] = Field(
-        ...,
-        description="放置位置，可以是语义标签(如'table')或坐标"
-    )
+class MeetPrsAtBeacAction(BaseModel):
+    """在信标处见某人（按名字）"""
+    type: Literal["meetPrsAtBeac"] = "meetPrsAtBeac"
+    person_name: str = Field(..., description="人物名称")
+    beacon: str = Field(..., description="信标/地点名称")
 
 
-class SearchAction(BaseModel):
-    """搜索动作 - 寻找物体"""
-    type: Literal["search"] = "search"
-    object_name: str = Field(..., description="要搜索的物体名称")
+class CountPrsInRoomAction(BaseModel):
+    """数房间里有某种姿态/手势的人数"""
+    type: Literal["countPrsInRoom"] = "countPrsInRoom"
+    room: str = Field(..., description="房间名称")
+    gesture: Optional[str] = Field(None, description="姿态/手势描述（可选，为空则数所有人）")
 
 
-class SpeakAction(BaseModel):
-    """说话动作 - 语音输出"""
-    type: Literal["speak"] = "speak"
-    content: str = Field(..., description="要说的内容")
+class TellPrsInfoInLocAction(BaseModel):
+    """告诉我某地某人的信息"""
+    type: Literal["tellPrsInfoInLoc"] = "tellPrsInfoInLoc"
+    person_name: Optional[str] = Field(None, description="人物名称（可选）")
+    location: str = Field(..., description="地点名称")
 
 
-class WaitAction(BaseModel):
-    """等待动作 - 保持当前状态"""
-    type: Literal["wait"] = "wait"
-    reason: Optional[str] = Field(None, description="等待原因")
+class TalkInfoToGestPrsInRoomAction(BaseModel):
+    """在房间跟做手势的人交谈/传递信息"""
+    type: Literal["talkInfoToGestPrsInRoom"] = "talkInfoToGestPrsInRoom"
+    room: str = Field(..., description="房间名称")
+    gesture: str = Field(..., description="目标人物的手势/姿态")
+    info: str = Field(..., description="要传递的信息内容")
+
+
+class FollowNameFromBeacToRoomAction(BaseModel):
+    """从信标跟随某人到房间"""
+    type: Literal["followNameFromBeacToRoom"] = "followNameFromBeacToRoom"
+    person_name: str = Field(..., description="要跟随的人物名称")
+    beacon: str = Field(..., description="起始信标/地点")
+    room: str = Field(..., description="目标房间")
+
+
+class GuideNameFromBeacToBeacAction(BaseModel):
+    """从信标引导某人到另一地点"""
+    type: Literal["guideNameFromBeacToBeac"] = "guideNameFromBeacToBeac"
+    person_name: str = Field(..., description="要引导的人物名称")
+    from_beacon: str = Field(..., description="起始信标")
+    to_beacon: str = Field(..., description="目标信标")
+
+
+class GuidePrsFromBeacToBeacAction(BaseModel):
+    """从信标引导有姿态/手势的人到另一地点"""
+    type: Literal["guidePrsFromBeacToBeac"] = "guidePrsFromBeacToBeac"
+    gesture: str = Field(..., description="姿态/手势描述")
+    from_beacon: str = Field(..., description="起始信标")
+    to_beacon: str = Field(..., description="目标信标")
+
+
+class GuideClothPrsFromBeacToBeacAction(BaseModel):
+    """引导穿特定颜色衣服的人从信标到另一地点"""
+    type: Literal["guideClothPrsFromBeacToBeac"] = "guideClothPrsFromBeacToBeac"
+    cloth_color: str = Field(..., description="衣服颜色")
+    from_beacon: str = Field(..., description="起始信标")
+    to_beacon: str = Field(..., description="目标信标")
+
+
+class GreetClothDscInRmAction(BaseModel):
+    """问候穿特定颜色衣服的人"""
+    type: Literal["greetClothDscInRm"] = "greetClothDscInRm"
+    cloth_color: str = Field(..., description="衣服颜色")
+    room: str = Field(..., description="房间名称")
+
+
+class GreetNameInRmAction(BaseModel):
+    """问候特定名字的人"""
+    type: Literal["greetNameInRm"] = "greetNameInRm"
+    person_name: str = Field(..., description="人物名称")
+    room: str = Field(..., description="房间名称")
+
+
+class MeetNameAtLocThenFindInRmAction(BaseModel):
+    """在某地见某人然后在房间找到他们"""
+    type: Literal["meetNameAtLocThenFindInRm"] = "meetNameAtLocThenFindInRm"
+    person_name: str = Field(..., description="人物名称")
+    meet_location: str = Field(..., description="见面地点")
+    room: str = Field(..., description="之后要找到该人物的房间")
+
+
+class CountClothPrsInRoomAction(BaseModel):
+    """数房间里穿特定颜色衣服的人数"""
+    type: Literal["countClothPrsInRoom"] = "countClothPrsInRoom"
+    cloth_color: str = Field(..., description="衣服颜色")
+    room: str = Field(..., description="房间名称")
+
+
+class TellPrsInfoAtLocToPrsAtLocAction(BaseModel):
+    """把一个地点某人的信息告诉另一地点的人"""
+    type: Literal["tellPrsInfoAtLocToPrsAtLoc"] = "tellPrsInfoAtLocToPrsAtLoc"
+    from_person: Optional[str] = Field(None, description="信息源人物名称")
+    from_location: str = Field(..., description="信息源地点")
+    to_person: Optional[str] = Field(None, description="目标人物名称")
+    to_location: str = Field(..., description="目标地点")
+    info: Optional[str] = Field(None, description="要传递的信息")
+
+
+class FollowPrsAtLocAction(BaseModel):
+    """跟随某地有姿态/手势的人"""
+    type: Literal["followPrsAtLoc"] = "followPrsAtLoc"
+    gesture: str = Field(..., description="姿态/手势描述")
+    location: str = Field(..., description="地点名称")
+
+
+# ==================== 物品操作类动作 (6种) ====================
+
+class TakeObjFromPlcmtAction(BaseModel):
+    """从放置处拿物品"""
+    type: Literal["takeObjFromPlcmt"] = "takeObjFromPlcmt"
+    object_name: str = Field(..., description="物品名称")
+    placement: str = Field(..., description="放置处/位置")
+
+
+class FindObjInRoomAction(BaseModel):
+    """在房间找物品"""
+    type: Literal["findObjInRoom"] = "findObjInRoom"
+    object_name: str = Field(..., description="物品名称")
+    room: str = Field(..., description="房间名称")
+
+
+class CountObjOnPlcmtAction(BaseModel):
+    """数放置处某类物品的数量"""
+    type: Literal["countObjOnPlcmt"] = "countObjOnPlcmt"
+    object_category: str = Field(..., description="物品类别")
+    placement: str = Field(..., description="放置处/位置")
+
+
+class TellObjPropOnPlcmtAction(BaseModel):
+    """问放置处物品的属性（最大/最小等）"""
+    type: Literal["tellObjPropOnPlcmt"] = "tellObjPropOnPlcmt"
+    object_name: str = Field(..., description="物品名称")
+    placement: str = Field(..., description="放置处/位置")
+    property: str = Field(..., description="要查询的属性（如 max, min, size, weight）")
+
+
+class BringMeObjFromPlcmtAction(BaseModel):
+    """从放置处拿物品给我"""
+    type: Literal["bringMeObjFromPlcmt"] = "bringMeObjFromPlcmt"
+    object_name: str = Field(..., description="物品名称")
+    placement: str = Field(..., description="放置处/位置")
+
+
+class TellCatPropOnPlcmtAction(BaseModel):
+    """问放置处某类物品的属性"""
+    type: Literal["tellCatPropOnPlcmt"] = "tellCatPropOnPlcmt"
+    category: str = Field(..., description="物品类别名称")
+    placement: str = Field(..., description="放置处/位置")
+    property: str = Field(..., description="要查询的属性（如 max, min, count, size）")
 
 
 # ==================== 联合动作类型 ====================
 
 # 所有可能的动作类型
 RobotAction = Union[
-    NavigateAction,
-    PickAction,
-    PlaceAction,
-    SearchAction,
-    SpeakAction,
-    WaitAction
+    GoToLocAction,
+    FindPrsInRoomAction,
+    MeetPrsAtBeacAction,
+    CountPrsInRoomAction,
+    TellPrsInfoInLocAction,
+    TalkInfoToGestPrsInRoomAction,
+    FollowNameFromBeacToRoomAction,
+    GuideNameFromBeacToBeacAction,
+    GuidePrsFromBeacToBeacAction,
+    GuideClothPrsFromBeacToBeacAction,
+    GreetClothDscInRmAction,
+    GreetNameInRmAction,
+    MeetNameAtLocThenFindInRmAction,
+    CountClothPrsInRoomAction,
+    TellPrsInfoAtLocToPrsAtLocAction,
+    FollowPrsAtLocAction,
+    TakeObjFromPlcmtAction,
+    FindObjInRoomAction,
+    CountObjOnPlcmtAction,
+    TellObjPropOnPlcmtAction,
+    BringMeObjFromPlcmtAction,
+    TellCatPropOnPlcmtAction,
 ]
 
 
@@ -120,12 +254,28 @@ def parse_action(action_dict: dict) -> RobotAction:
     action_type = action_dict.get("type")
 
     action_map = {
-        "navigate": NavigateAction,
-        "pick": PickAction,
-        "place": PlaceAction,
-        "search": SearchAction,
-        "speak": SpeakAction,
-        "wait": WaitAction,
+        "goToLoc": GoToLocAction,
+        "findPrsInRoom": FindPrsInRoomAction,
+        "meetPrsAtBeac": MeetPrsAtBeacAction,
+        "countPrsInRoom": CountPrsInRoomAction,
+        "tellPrsInfoInLoc": TellPrsInfoInLocAction,
+        "talkInfoToGestPrsInRoom": TalkInfoToGestPrsInRoomAction,
+        "followNameFromBeacToRoom": FollowNameFromBeacToRoomAction,
+        "guideNameFromBeacToBeac": GuideNameFromBeacToBeacAction,
+        "guidePrsFromBeacToBeac": GuidePrsFromBeacToBeacAction,
+        "guideClothPrsFromBeacToBeac": GuideClothPrsFromBeacToBeacAction,
+        "greetClothDscInRm": GreetClothDscInRmAction,
+        "greetNameInRm": GreetNameInRmAction,
+        "meetNameAtLocThenFindInRm": MeetNameAtLocThenFindInRmAction,
+        "countClothPrsInRoom": CountClothPrsInRoomAction,
+        "tellPrsInfoAtLocToPrsAtLoc": TellPrsInfoAtLocToPrsAtLocAction,
+        "followPrsAtLoc": FollowPrsAtLocAction,
+        "takeObjFromPlcmt": TakeObjFromPlcmtAction,
+        "findObjInRoom": FindObjInRoomAction,
+        "countObjOnPlcmt": CountObjOnPlcmtAction,
+        "tellObjPropOnPlcmt": TellObjPropOnPlcmtAction,
+        "bringMeObjFromPlcmt": BringMeObjFromPlcmtAction,
+        "tellCatPropOnPlcmt": TellCatPropOnPlcmtAction,
     }
 
     if action_type not in action_map:

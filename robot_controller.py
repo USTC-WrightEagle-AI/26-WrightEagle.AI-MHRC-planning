@@ -149,24 +149,85 @@ class RobotController:
         action_type = action.type
 
         try:
-            if action_type == "navigate":
-                return self.robot.navigate(action.target)
+            # ==================== 导航类动作 ====================
+            if action_type == "goToLoc":
+                return self.robot.goToLoc(action.target, action.then_find_person)
 
-            elif action_type == "search":
-                result = self.robot.search(action.object_name)
+            # ==================== 人物操作类动作 ====================
+            elif action_type == "findPrsInRoom":
+                result = self.robot.findPrsInRoom(action.room, action.gesture)
                 return result is not None
 
-            elif action_type == "pick":
-                return self.robot.pick(action.object_name, action.object_id)
+            elif action_type == "meetPrsAtBeac":
+                return self.robot.meetPrsAtBeac(action.person_name, action.beacon)
 
-            elif action_type == "place":
-                return self.robot.place(action.location)
+            elif action_type == "countPrsInRoom":
+                count = self.robot.countPrsInRoom(action.room, action.gesture)
+                return count >= 0
 
-            elif action_type == "speak":
-                return self.robot.speak(action.content)
+            elif action_type == "tellPrsInfoInLoc":
+                result = self.robot.tellPrsInfoInLoc(action.person_name, action.location)
+                return result is not None
 
-            elif action_type == "wait":
-                return self.robot.wait(action.reason)
+            elif action_type == "talkInfoToGestPrsInRoom":
+                return self.robot.talkInfoToGestPrsInRoom(action.room, action.gesture, action.info)
+
+            elif action_type == "followNameFromBeacToRoom":
+                return self.robot.followNameFromBeacToRoom(action.person_name, action.beacon, action.room)
+
+            elif action_type == "guideNameFromBeacToBeac":
+                return self.robot.guideNameFromBeacToBeac(action.person_name, action.from_beacon, action.to_beacon)
+
+            elif action_type == "guidePrsFromBeacToBeac":
+                return self.robot.guidePrsFromBeacToBeac(action.gesture, action.from_beacon, action.to_beacon)
+
+            elif action_type == "guideClothPrsFromBeacToBeac":
+                return self.robot.guideClothPrsFromBeacToBeac(action.cloth_color, action.from_beacon, action.to_beacon)
+
+            elif action_type == "greetClothDscInRm":
+                return self.robot.greetClothDscInRm(action.cloth_color, action.room)
+
+            elif action_type == "greetNameInRm":
+                return self.robot.greetNameInRm(action.person_name, action.room)
+
+            elif action_type == "meetNameAtLocThenFindInRm":
+                return self.robot.meetNameAtLocThenFindInRm(action.person_name, action.meet_location, action.room)
+
+            elif action_type == "countClothPrsInRoom":
+                count = self.robot.countClothPrsInRoom(action.cloth_color, action.room)
+                return count >= 0
+
+            elif action_type == "tellPrsInfoAtLocToPrsAtLoc":
+                return self.robot.tellPrsInfoAtLocToPrsAtLoc(
+                    action.from_person, action.from_location,
+                    action.to_person, action.to_location, action.info
+                )
+
+            elif action_type == "followPrsAtLoc":
+                return self.robot.followPrsAtLoc(action.gesture, action.location)
+
+            # ==================== 物品操作类动作 ====================
+            elif action_type == "takeObjFromPlcmt":
+                return self.robot.takeObjFromPlcmt(action.object_name, action.placement)
+
+            elif action_type == "findObjInRoom":
+                result = self.robot.findObjInRoom(action.object_name, action.room)
+                return result is not None
+
+            elif action_type == "countObjOnPlcmt":
+                count = self.robot.countObjOnPlcmt(action.object_category, action.placement)
+                return count >= 0
+
+            elif action_type == "tellObjPropOnPlcmt":
+                result = self.robot.tellObjPropOnPlcmt(action.object_name, action.placement, action.property)
+                return result is not None
+
+            elif action_type == "bringMeObjFromPlcmt":
+                return self.robot.bringMeObjFromPlcmt(action.object_name, action.placement)
+
+            elif action_type == "tellCatPropOnPlcmt":
+                result = self.robot.tellCatPropOnPlcmt(action.category, action.placement, action.property)
+                return result is not None
 
             else:
                 print(f"⚠ 未知动作类型: {action_type}")

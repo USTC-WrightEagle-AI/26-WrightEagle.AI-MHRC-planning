@@ -30,84 +30,122 @@ class RobotInterface(ABC):
         self.current_position: Optional[str] = None
         self.holding_object: Optional[str] = None
 
+    # ==================== 导航类动作 ====================
+
     @abstractmethod
-    def navigate(self, target) -> bool:
-        """
-        导航到目标位置
+    def goToLoc(self, target: str, then_find_person: bool = False) -> bool:
+        """去某地（可选到达后找人）"""
+        pass
 
-        Args:
-            target: 目标位置（语义标签或坐标）
+    # ==================== 人物操作类动作 ====================
 
-        Returns:
-            bool: 是否成功
-        """
+    @abstractmethod
+    def findPrsInRoom(self, room: str, gesture: Optional[str] = None) -> Optional[dict]:
+        """在房间找特定姿态/手势的人"""
         pass
 
     @abstractmethod
-    def search(self, object_name: str) -> Optional[dict]:
-        """
-        搜索物体
-
-        Args:
-            object_name: 物体名称
-
-        Returns:
-            dict: 找到的物体信息，如 {"name": "apple", "position": [x,y,z]}
-            None: 未找到
-        """
+    def meetPrsAtBeac(self, person_name: str, beacon: str) -> bool:
+        """在信标处见某人（按名字）"""
         pass
 
     @abstractmethod
-    def pick(self, object_name: str, object_id: Optional[int] = None) -> bool:
-        """
-        抓取物体
-
-        Args:
-            object_name: 物体名称
-            object_id: 物体ID（如果有多个同名物体）
-
-        Returns:
-            bool: 是否成功
-        """
+    def countPrsInRoom(self, room: str, gesture: Optional[str] = None) -> int:
+        """数房间里有某种姿态/手势的人数"""
         pass
 
     @abstractmethod
-    def place(self, location) -> bool:
-        """
-        放置物体
-
-        Args:
-            location: 放置位置
-
-        Returns:
-            bool: 是否成功
-        """
+    def tellPrsInfoInLoc(self, person_name: Optional[str], location: str) -> Optional[dict]:
+        """告诉我某地某人的信息"""
         pass
 
     @abstractmethod
-    def speak(self, content: str) -> bool:
-        """
-        语音输出
-
-        Args:
-            content: 要说的内容
-
-        Returns:
-            bool: 是否成功
-        """
+    def talkInfoToGestPrsInRoom(self, room: str, gesture: str, info: str) -> bool:
+        """在房间跟做手势的人交谈/传递信息"""
         pass
 
     @abstractmethod
-    def wait(self, reason: Optional[str] = None) -> bool:
-        """
-        等待/无操作
+    def followNameFromBeacToRoom(self, person_name: str, beacon: str, room: str) -> bool:
+        """从信标跟随某人到房间"""
+        pass
 
-        Args:
-            reason: 等待原因
+    @abstractmethod
+    def guideNameFromBeacToBeac(self, person_name: str, from_beacon: str, to_beacon: str) -> bool:
+        """从信标引导某人到另一地点"""
+        pass
 
-        Returns:
-            bool: 是否成功
-        """
+    @abstractmethod
+    def guidePrsFromBeacToBeac(self, gesture: str, from_beacon: str, to_beacon: str) -> bool:
+        """从信标引导有姿态/手势的人到另一地点"""
+        pass
+
+    @abstractmethod
+    def guideClothPrsFromBeacToBeac(self, cloth_color: str, from_beacon: str, to_beacon: str) -> bool:
+        """引导穿特定颜色衣服的人从信标到另一地点"""
+        pass
+
+    @abstractmethod
+    def greetClothDscInRm(self, cloth_color: str, room: str) -> bool:
+        """问候穿特定颜色衣服的人"""
+        pass
+
+    @abstractmethod
+    def greetNameInRm(self, person_name: str, room: str) -> bool:
+        """问候特定名字的人"""
+        pass
+
+    @abstractmethod
+    def meetNameAtLocThenFindInRm(self, person_name: str, meet_location: str, room: str) -> bool:
+        """在某地见某人然后在房间找到他们"""
+        pass
+
+    @abstractmethod
+    def countClothPrsInRoom(self, cloth_color: str, room: str) -> int:
+        """数房间里穿特定颜色衣服的人数"""
+        pass
+
+    @abstractmethod
+    def tellPrsInfoAtLocToPrsAtLoc(self, from_person: Optional[str], from_location: str,
+                                     to_person: Optional[str], to_location: str,
+                                     info: Optional[str] = None) -> bool:
+        """把一个地点某人的信息告诉另一地点的人"""
+        pass
+
+    @abstractmethod
+    def followPrsAtLoc(self, gesture: str, location: str) -> bool:
+        """跟随某地有姿态/手势的人"""
+        pass
+
+    # ==================== 物品操作类动作 ====================
+
+    @abstractmethod
+    def takeObjFromPlcmt(self, object_name: str, placement: str) -> bool:
+        """从放置处拿物品"""
+        pass
+
+    @abstractmethod
+    def findObjInRoom(self, object_name: str, room: str) -> Optional[dict]:
+        """在房间找物品"""
+        pass
+
+    @abstractmethod
+    def countObjOnPlcmt(self, object_category: str, placement: str) -> int:
+        """数放置处某类物品的数量"""
+        pass
+
+    @abstractmethod
+    def tellObjPropOnPlcmt(self, object_name: str, placement: str, property: str) -> Optional[dict]:
+        """问放置处物品的属性（最大/最小等）"""
+        pass
+
+    @abstractmethod
+    def bringMeObjFromPlcmt(self, object_name: str, placement: str) -> bool:
+        """从放置处拿物品给我"""
+        pass
+
+    @abstractmethod
+    def tellCatPropOnPlcmt(self, category: str, placement: str, property: str) -> Optional[dict]:
+        """问放置处某类物品的属性"""
         pass
 
     def get_state(self) -> RobotState:
