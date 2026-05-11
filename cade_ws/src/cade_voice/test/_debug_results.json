@@ -1,0 +1,179 @@
+{
+  "whisper": {
+    "model_type": "whisper",
+    "test_mode": "offline",
+    "provider": "cpu",
+    "total_files": 16,
+    "total_audio_duration": 46.522,
+    "total_elapsed": 25.034,
+    "decode_elapsed": 24.331,
+    "rtf": 0.538,
+    "avg_char_accuracy": 0.9972,
+    "exact_match_rate": 0.9375,
+    "results": [
+      {
+        "filename": "tts_kokoro_s10_00.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_00.wav",
+        "index": 0,
+        "ground_truth": "Hello, how are you doing today? I hope everything is going well for you.",
+        "recognized": "Hello, how are you doing today? I hope everything is going well for you.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 3.755
+      },
+      {
+        "filename": "tts_kokoro_s10_01.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_01.wav",
+        "index": 1,
+        "ground_truth": "The weather is really nice today, perfect for a walk outside.",
+        "recognized": "The weather is really nice today, perfect for a walk outside.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 3.296
+      },
+      {
+        "filename": "tts_kokoro_s10_02.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_02.wav",
+        "index": 2,
+        "ground_truth": "I had a great lunch with my friends at the new restaurant downtown.",
+        "recognized": "I had a great lunch with my friends at the new restaurant downtown.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 3.48
+      },
+      {
+        "filename": "tts_kokoro_s10_03.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_03.wav",
+        "index": 3,
+        "ground_truth": "Could you please help me find my keys? I think I left them on the table.",
+        "recognized": "Could you please help me find my keys? I think I left them on the table.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 3.765
+      },
+      {
+        "filename": "tts_kokoro_s10_04.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_04.wav",
+        "index": 4,
+        "ground_truth": "The meeting has been rescheduled to three o'clock tomorrow afternoon.",
+        "recognized": "The meeting has been rescheduled to 3 o'clock tomorrow afternoon.",
+        "exact_match": false,
+        "char_accuracy": 0.9545,
+        "duration_s": 3.683
+      },
+      {
+        "filename": "tts_kokoro_s10_05.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_05.wav",
+        "index": 5,
+        "ground_truth": "I am learning about artificial intelligence and machine learning these days.",
+        "recognized": "I am learning about artificial intelligence and machine learning these days.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 4.123
+      },
+      {
+        "filename": "tts_kokoro_s10_06.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_06.wav",
+        "index": 6,
+        "ground_truth": "My favorite color is blue, but I also like green and yellow quite a lot.",
+        "recognized": "My favorite color is blue, but I also like green and yellow quite a lot.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 4.333
+      },
+      {
+        "filename": "tts_kokoro_s10_07.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_07.wav",
+        "index": 7,
+        "ground_truth": "She went to the supermarket to buy some milk, bread, and fresh fruit.",
+        "recognized": "She went to the supermarket to buy some milk, bread and fresh fruit.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 3.723
+      },
+      {
+        "filename": "tts_kokoro_s10_08.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_08.wav",
+        "index": 8,
+        "ground_truth": "Bring me a coke from the kitchen.",
+        "recognized": "Bring me a coke from the kitchen.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 1.555
+      },
+      {
+        "filename": "tts_kokoro_s10_09.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_09.wav",
+        "index": 9,
+        "ground_truth": "Go to the living room and wait there.",
+        "recognized": "Go to the living room and wait there.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 1.873
+      },
+      {
+        "filename": "tts_kokoro_s10_10.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_10.wav",
+        "index": 10,
+        "ground_truth": "Point to the person wearing a red shirt.",
+        "recognized": "Point to the person wearing a red shirt.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 2.053
+      },
+      {
+        "filename": "tts_kokoro_s10_11.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_11.wav",
+        "index": 11,
+        "ground_truth": "Follow me to the bedroom please.",
+        "recognized": "Follow me to the bedroom, please.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 1.715
+      },
+      {
+        "filename": "tts_kokoro_s10_12.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_12.wav",
+        "index": 12,
+        "ground_truth": "What objects do you see on the dining table?",
+        "recognized": "What objects do you see on the dining table?",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 2.43
+      },
+      {
+        "filename": "tts_kokoro_s10_13.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_13.wav",
+        "index": 13,
+        "ground_truth": "Pick up the green cup and put it on the shelf.",
+        "recognized": "Pick up the green cup and put it on the shelf.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 2.251
+      },
+      {
+        "filename": "tts_kokoro_s10_14.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_14.wav",
+        "index": 14,
+        "ground_truth": "Tell me the name of this object you are holding.",
+        "recognized": "Tell me the name of this object you are holding.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 2.316
+      },
+      {
+        "filename": "tts_kokoro_s10_15.wav",
+        "filepath": "Q:\\26-WrightEagle.AI-Speech\\test\\audio_output\\tts_kokoro_s10_15.wav",
+        "index": 15,
+        "ground_truth": "Navigate to the door and open it for me.",
+        "recognized": "navigate to the door and open it for me.",
+        "exact_match": true,
+        "char_accuracy": 1.0,
+        "duration_s": 2.171
+      }
+    ]
+  },
+  "moonshine": {
+    "error": "__init__(): incompatible constructor arguments. The following argument types are supported:\n    1. sherpa_onnx.lib._sherpa_onnx.OfflineMoonshineModelConfig(preprocessor: str = '', encoder: str = '', uncached_decoder: str = '', cached_decoder: str = '', merged_decoder: str = '')\n\nInvoked with: kwargs: preprocessor=None, encoder='Q:\\\\26-WrightEagle.AI-Speech\\\\models\\\\sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27\\\\encoder_model.ort', uncached_decoder='Q:\\\\26-WrightEagle.AI-Speech\\\\models\\\\sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27\\\\decoder_model_merged.ort', cached_decoder='Q:\\\\26-WrightEagle.AI-Speech\\\\models\\\\sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27\\\\decoder_model_merged.ort'"
+  }
+}

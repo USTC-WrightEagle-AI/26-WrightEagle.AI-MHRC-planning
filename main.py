@@ -3,9 +3,9 @@
 CADE ROS Entry Point - ROS 环境下的启动入口
 
 运行方式：
-    rosrun cade main_ros.py
+    rosrun cade main.py
 或
-    python main_ros.py
+    python main.py
 
 功能：
     启动 ROS 语音桥接器，实现语音交互循环
@@ -79,10 +79,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-    python main_ros.py                    # 默认模式
-    python main_ros.py --mode debug       # 调试模式
-    python main_ros.py --no-thought       # 不显示思考过程
-    python main_ros.py --env "你在家中"   # 自定义环境上下文
+    python main.py                    # 默认模式
+    python main.py --mode debug       # 调试模式
+    python main.py --no-thought       # 不显示思考过程
+    python main.py --env "你在家中"   # 自定义环境上下文
 
 前提条件:
     1. ROS master 已启动 (roscore)
@@ -92,7 +92,7 @@ def main():
 启动顺序:
     1. roscore
     2. roslaunch asr_tts speech.launch   # 启动 ASR 和 TTS 节点
-    3. python main_ros.py                 # 启动 CADE 控制器
+    3. python main.py                 # 启动 CADE 控制器
         """
     )
 

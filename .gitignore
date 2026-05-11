@@ -30,11 +30,31 @@ logs/
 .coverage
 htmlcov/
 
-# ROS（未来需要）
+# ROS
 build/
 devel/
 logs/
 .catkin_workspace
+
+# cade_ws build artifacts
+cade_ws/build/
+cade_ws/devel/
+cade_ws/logs/
+cade_ws/install/
+cade_ws/.catkin_workspace
+
+# Python cache (cade_ws内)
+cade_ws/**/__pycache__/
+cade_ws/**/*.pyc
+
+# 大模型和音频文件（体积过大，或通过外部下载）
+*.onnx
+*.wav
+*.pth
+*.pt
+cade_ws/src/cade_voice/models/
+cade_ws/src/cade_voice/test_audio/
+cade_ws/src/cade_voice/recordings/
 
 # ai 工具相关
 .aider*

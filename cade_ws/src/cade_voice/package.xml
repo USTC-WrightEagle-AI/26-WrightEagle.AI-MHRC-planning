@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>cade_voice</name>
+  <version>0.1.0</version>
+  <description>CADE Voice - ASR and TTS interaction layer</description>
+  <maintainer email="huyanshen@example.com">huyanshen</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+
+  <export>
+  </export>
+</package>

@@ -1,0 +1,10 @@
+# Dependencies for asr_tts ROS package
+# Python >= 3.8
+
+# Core dependencies
+sherpa-onnx
+numpy
+
+# Audio I/O
+sounddevice
+soundfile
