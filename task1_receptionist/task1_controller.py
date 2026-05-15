@@ -1,8 +1,14 @@
 """
 Task1 总控 — Receptionist 接待任务
 
-直接运行即可完成完整 Task1 流程：
+直接运行:
     python task1_receptionist/task1_controller.py
+
+使用预置脚本 (跳过真实 ASR, 用于反复测试):
+    python task1_receptionist/task1_controller.py --script "Alice,橙汁,Bob,可乐"
+
+对接真实语音节点 (需要 roscore + tts_node + asr_node):
+    python task1_receptionist/task1_controller.py --ros
 
 流程 (14 个执行状态):
     [1]  GO_TO_DOOR        → 移动到门口
@@ -23,22 +29,72 @@ Task1 总控 — Receptionist 接待任务
 
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from task1_receptionist.state_definitions import (
+    Task1StateID,
     StateDefinition,
     get_execution_states,
 )
+from task1_receptionist.sub_modules.base_module import (
+    BaseSubModule,
+    NavigationModule,
+    SpeechModule,
+    VisionModule,
+    ManipulationModule,
+)
+from task1_receptionist.sub_modules.speech_interaction import (
+    SpeechInterface,
+    create_speech_interface,
+)
+
+
+# ============================================================
+# 状态 → 模块 调度表
+# ============================================================
+
+# 每个状态由哪些模块按顺序处理
+STATE_MODULES: Dict[Task1StateID, List[str]] = {
+    Task1StateID.GO_TO_DOOR:        ["navigation"],
+    Task1StateID.ASK_GUEST1_INFO:   ["speech"],
+    Task1StateID.GUIDE_GUEST1:      ["navigation"],
+    Task1StateID.POINT_EMPTY_SEAT:  ["manipulation"],
+    Task1StateID.RETURN_TO_START:   ["navigation"],
+    Task1StateID.PICK_UP_GUEST2:    ["navigation", "speech"],
+    Task1StateID.DESCRIBE_GUEST1:   ["vision", "speech"],
+    Task1StateID.SEAT_GUEST2:       ["navigation", "speech"],
+    Task1StateID.INTRODUCE_GUESTS:  ["speech"],
+    Task1StateID.REQUEST_GUEST2_BAG:["speech", "manipulation"],
+    Task1StateID.FIND_HOST:         ["vision"],
+    Task1StateID.FOLLOW_HOST:       ["vision", "navigation"],
+    Task1StateID.PLACE_BAG:         ["manipulation"],
+    Task1StateID.TASK_COMPLETE:     ["speech"],
+}
 
 
 class Task1Runner:
-    """Task1 纯 Python 执行器 — 按顺序执行所有状态"""
+    """Task1 执行器 — 状态机编排, 委托子模块执行"""
 
-    def __init__(self, step_delay: float = 1.0):
+    def __init__(self,
+                 speech: Optional[SpeechInterface] = None,
+                 step_delay: float = 1.0):
+        """
+        Args:
+            speech: 语音交互接口 (Mock / ROS / Scripted)
+            step_delay: 状态间延迟秒数
+        """
         self.step_delay = step_delay
         self.context: Dict[str, Any] = {"robot_position": "home"}
         self._execution_states = get_execution_states()
         self._start_time: float = 0.0
+
+        # 初始化子模块
+        self._modules: Dict[str, BaseSubModule] = {
+            "navigation":   NavigationModule(),
+            "speech":       SpeechModule(speech),
+            "vision":       VisionModule(),
+            "manipulation": ManipulationModule(),
+        }
 
     # ============================================================
     # 主入口
@@ -46,7 +102,6 @@ class Task1Runner:
 
     def run(self):
         self._start_time = time.time()
-        total = len(self._execution_states)
 
         print()
         print("█" * 55)
@@ -63,6 +118,8 @@ class Task1Runner:
         print(f"█  上下文: {json.dumps(self.context, ensure_ascii=False)}")
         print("█" * 55)
 
+        self._cleanup()
+
     # ============================================================
     # 单个状态执行
     # ============================================================
@@ -71,6 +128,7 @@ class Task1Runner:
         idx = state_def.index
         name = state_def.state_id.value
         desc = state_def.description
+        sid = state_def.state_id
 
         print()
         print(f"{'─' * 50}")
@@ -82,102 +140,37 @@ class Task1Runner:
             print(f"   产出: {state_def.data_produced}")
         print(f"{'─' * 50}")
 
-        # 延迟模拟执行时间
+        # 延迟 (模拟执行时间)
         time.sleep(self.step_delay)
 
-        # 调用对应处理器
-        handler = getattr(self, f"_handle_{name}", None)
-        if handler:
-            try:
-                data = handler(state_def)
+        # 委托子模块
+        module_names = STATE_MODULES.get(sid, [])
+        if not module_names:
+            print(f"  ⚠ 未找到模块映射: {name}")
+            return
+
+        try:
+            for mod_name in module_names:
+                module = self._modules.get(mod_name)
+                if module is None:
+                    print(f"  ⚠ 模块未注册: {mod_name}")
+                    continue
+                data = module.execute(sid, self.context)
                 if data:
                     self.context.update(data)
-            except Exception as e:
-                print(f"  ⚠ 执行异常: {e}")
-        else:
-            print(f"  → (待实现: {name})")
+        except Exception as e:
+            print(f"  ⚠ 执行异常 [{mod_name}]: {e}")
+            import traceback
+            traceback.print_exc()
 
     # ============================================================
-    # 各状态处理器 (placeholder — 后续接入真实子模块)
+    # 清理
     # ============================================================
 
-    def _handle_go_to_door(self, _s: StateDefinition) -> Optional[Dict]:
-        print("  🚪 导航: 移动到门口接客位置")
-        return {"robot_at_door": True}
-
-    def _handle_ask_guest1_info(self, s: StateDefinition) -> Optional[Dict]:
-        print("  🎤 TTS: \"欢迎! 请问您的名字是什么?\"")
-        print("  👂 ASR: 等待回复... → \"Alice\"")
-        print("  🎤 TTS: \"请问您想喝什么饮料?\"")
-        print("  👂 ASR: 等待回复... → \"橙汁\"")
-        return {"guest1_name": "Alice", "guest1_drink": "橙汁"}
-
-    def _handle_guide_guest1(self, s: StateDefinition) -> Optional[Dict]:
-        guest = self.context.get("guest1_name", "guest1")
-        print(f"  🚶 导航: 带领 {guest} 前往客厅")
-        return {"guest1_in_living_room": True}
-
-    def _handle_point_empty_seat(self, s: StateDefinition) -> Optional[Dict]:
-        guest = self.context.get("guest1_name", "guest1")
-        print(f"  👉 手臂: 指向空座位, 请 {guest} 入座")
-        return {"guest1_seated": True, "seat_number": 1}
-
-    def _handle_return_to_start(self, s: StateDefinition) -> Optional[Dict]:
-        print("  🚶 导航: 返回起点位置, 准备接第二位客人")
-        return {"robot_at_start": True}
-
-    def _handle_pick_up_guest2(self, s: StateDefinition) -> Optional[Dict]:
-        print("  🚪 导航: 移动到门口")
-        print("  🎤 TTS: \"欢迎! 请问您的名字是什么?\"")
-        print("  👂 ASR: 等待回复... → \"Bob\"")
-        return {"guest2_at_door": True, "guest2_name": "Bob"}
-
-    def _handle_describe_guest1(self, s: StateDefinition) -> Optional[Dict]:
-        guest1 = self.context.get("guest1_name", "guest1")
-        print(f"  📷 视觉: 识别 {guest1} 的外貌特征")
-        print(f"  🎤 TTS: \"{guest1} 穿着红色外套, 坐在 1 号座位\"")
-        return {"guest1_described": True}
-
-    def _handle_seat_guest2(self, s: StateDefinition) -> Optional[Dict]:
-        guest = self.context.get("guest2_name", "guest2")
-        print(f"  🚶 导航: 带领 {guest} 前往客厅")
-        print(f"  🎤 TTS: \"{guest}, 请问您想喝什么饮料?\"")
-        print(f"  👂 ASR: 等待回复... → \"可乐\"")
-        print(f"  👉 手臂: 指向空座位, 请 {guest} 入座")
-        return {"guest2_seated": True, "guest2_drink": "可乐", "seat_number": 2}
-
-    def _handle_introduce_guests(self, s: StateDefinition) -> Optional[Dict]:
-        g1 = self.context.get("guest1_name", "guest1")
-        g1d = self.context.get("guest1_drink", "?")
-        g2 = self.context.get("guest2_name", "guest2")
-        g2d = self.context.get("guest2_drink", "?")
-        print(f"  🎤 TTS: \"{g1}, 这位是 {g2}, 他喜欢喝{g2d}。{g2}, 这位是 {g1}, 她喜欢喝{g1d}。\"")
-        return {"guests_introduced": True}
-
-    def _handle_request_guest2_bag(self, s: StateDefinition) -> Optional[Dict]:
-        guest = self.context.get("guest2_name", "guest2")
-        print(f"  🎤 TTS: \"{guest}, 请把您的包放在我的托盘上\"")
-        print(f"  🦾 机械臂: 伸出托盘, 等待放包")
-        print(f"  📷 视觉: 检测包是否放置完成")
-        return {"bag_on_tray": True}
-
-    def _handle_find_host(self, s: StateDefinition) -> Optional[Dict]:
-        print("  📷 视觉: 在环境中搜索 host...")
-        print("  🚶 导航: 靠近 host")
-        return {"host_found": True, "host_location": "living_room"}
-
-    def _handle_follow_host(self, s: StateDefinition) -> Optional[Dict]:
-        print("  📷 视觉: 跟踪 host 位置")
-        print("  🚶 导航: 跟随 host 走到指定位置")
-        return {"at_destination": True, "destination": "storage_room"}
-
-    def _handle_place_bag(self, s: StateDefinition) -> Optional[Dict]:
-        print("  🦾 机械臂: 将托盘上的包放到指定位置")
-        return {"bag_placed": True}
-
-    def _handle_task_complete(self, s: StateDefinition) -> Optional[Dict]:
-        print("  🎤 TTS: \"任务完成, 感谢各位的配合!\"")
-        return {}
+    def _cleanup(self):
+        for mod in self._modules.values():
+            if hasattr(mod, 'close'):
+                mod.close()
 
 
 # ============================================================
@@ -186,12 +179,35 @@ class Task1Runner:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Task1 Receptionist 接待任务")
+
+    parser = argparse.ArgumentParser(
+        description="Task1 Receptionist 接待任务",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python task1_controller.py
+  python task1_controller.py --script "Alice,橙汁,Bob,可乐"
+  python task1_controller.py --script "张三,茶,李四,咖啡" --delay 0.5
+  python task1_controller.py --ros
+        """,
+    )
     parser.add_argument("--delay", type=float, default=1.0,
                         help="状态间延迟秒数 (默认 1.0)")
+    parser.add_argument("--ros", action="store_true",
+                        help="对接真实 ROS TTS + ASR 节点")
+    parser.add_argument("--script", type=str, default=None,
+                        help="预置 ASR 回复脚本, 逗号分隔 (如: Alice,橙汁,Bob,可乐)")
+
     args = parser.parse_args()
 
-    runner = Task1Runner(step_delay=args.delay)
+    # 创建语音接口
+    script = None
+    if args.script:
+        script = [s.strip() for s in args.script.split(",") if s.strip()]
+
+    speech = create_speech_interface(use_ros=args.ros, script=script)
+
+    runner = Task1Runner(speech=speech, step_delay=args.delay)
     runner.run()
 
 
