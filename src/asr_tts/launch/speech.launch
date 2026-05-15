@@ -7,20 +7,24 @@
     <arg name="enable_speaker_doa" default="true" />
     <arg name="enable_doorbell" default="true" />
 
+    <!-- ===== 音频采集节点 (唯一打开麦克风的节点) ===== -->
+    <!-- 发布 /audio/raw (Float32MultiArray), 供 ASR / Doorbell 订阅 -->
+    <node pkg="asr_tts" type="audio_capture_node.py" name="audio_capture_node" output="screen">
+        <param name="device_name" value="$(arg mic_id)" />
+        <param name="sample_rate" value="16000" />
+        <param name="chunk_duration" value="0.2" />
+    </node>
+
     <!-- ===== TTS 节点 (必须) ===== -->
     <node pkg="asr_tts" type="tts_node.py" name="tts_node" output="screen">
         <param name="device_name" value="$(arg speaker_id)" />
         <param name="play" value="true" />
     </node>
 
-    <!-- ===== ASR 节点 (必须) ===== -->
-    <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen">
-        <param name="device_name" value="$(arg mic_id)" />
-    </node>
+    <!-- ===== ASR 节点 (必须, 订阅 /audio/raw) ===== -->
+    <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen" />
 
     <!-- ===== Speaker DOA 节点 (说话人识别 + 声源定位) ===== -->
-    <!-- 发布: /speaker_doa/result — 检测结果 (speaker_id, angle_deg, score) -->
-    <!-- 订阅: /speaker_doa/enroll — 录入指令 {"command":"enroll","speaker_name":"guest1"} -->
     <node pkg="asr_tts" type="speaker_doa_node.py" name="speaker_doa_node" output="screen"
           if="$(arg enable_speaker_doa)">
         <param name="serial_device" value="auto" />
@@ -35,11 +39,9 @@
         <param name="score_threshold" value="0.0" />
     </node>
 
-    <!-- ===== Doorbell 节点 (门铃检测) ===== -->
-    <!-- 发布: /doorbell/detected — 检测结果 {"detected":true,"label":"Doorbell","probability":0.85} -->
+    <!-- ===== Doorbell 节点 (订阅 /audio/raw) ===== -->
     <node pkg="asr_tts" type="doorbell_node.py" name="doorbell_node" output="screen"
           if="$(arg enable_doorbell)">
-        <param name="device_name" value="$(arg mic_id)" />
         <param name="threshold" value="0.5" />
         <param name="buffer_duration" value="2.0" />
         <param name="overlap_duration" value="1.0" />

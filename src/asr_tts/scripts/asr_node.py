@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 ASR Node - VAD + Offline (Non-streaming) ASR
-Uses SenseVoice/Whisper/Paraformer/Transducer models with Silero VAD.
-Publishes recognized text to /asr topic (std_msgs/String).
+
+订阅 /audio/raw (Float32MultiArray), 使用 Silero VAD +
+SenseVoice/Whisper/Paraformer/Transducer 模型进行离线语音识别。
+识别结果发布到 /asr topic (std_msgs/String)。
 """
 
 import wave
@@ -16,18 +18,8 @@ import argparse
 import os
 
 import rospy
-from std_msgs.msg import String
+from std_msgs.msg import Float32MultiArray, String
 import rospkg
-
-try:
-    import sounddevice as sd
-except ImportError:
-    print("Please install sounddevice first. You can use")
-    print()
-    print("  pip install sounddevice")
-    print()
-    sys.exit(-1)
-
 
 pkg_path = rospkg.RosPack().get_path('asr_tts')
 
@@ -370,42 +362,15 @@ class ASRNode:
         self.publisher = rospy.Publisher("asr", String, queue_size=10)
 
     def run(self):
-        """Main loop - runs on main thread using PortAudio callback + queue."""
-        devices = sd.query_devices()
-        if len(devices) == 0:
-            rospy.logerr("No audio devices found!")
-            sys.exit(1)
-
-        target_name = rospy.get_param("~device_name", "default")
-        rospy.loginfo(f"Trying to lock audio device: \"{target_name}\"")
-
-        default_input_device_idx = None
-        for i, d in enumerate(devices):
-            if target_name in d['name'] and d['max_input_channels'] > 0:
-                default_input_device_idx = i
-                break
-
-        if default_input_device_idx is None:
-            rospy.logerr(f"Cannot find device: \"{target_name}\"")
-            rospy.logerr("Run 'python3 -m sounddevice' to check device names.")
-            sys.exit(1)
-
-        print(
-            f"Microphone locked: [{default_input_device_idx}] "
-            f"{devices[default_input_device_idx]['name']}"
-        )
-
+        """Main loop — 订阅 /audio/raw, 不再直接打开声卡."""
         args, _ = get_args()
         assert_file_exists(args.tokens)
         assert_file_exists(args.silero_vad_model)
 
         assert args.num_threads > 0, args.num_threads
 
-        device_sample_rate = int(devices[default_input_device_idx]['default_samplerate'])
-        target_sample_rate = args.sample_rate
-
-        if device_sample_rate != target_sample_rate:
-            print(f"Device sample rate: {device_sample_rate} Hz, resampling to: {target_sample_rate} Hz")
+        sample_rate = args.sample_rate
+        rospy.loginfo(f"ASR: sample_rate={sample_rate} Hz")
 
         print("Creating recognizer. Please wait...")
         recognizer = create_recognizer(args)
@@ -413,7 +378,7 @@ class ASRNode:
         config = sherpa_onnx.VadModelConfig()
         config.silero_vad.model = args.silero_vad_model
         config.silero_vad.min_silence_duration = 0.25
-        config.sample_rate = target_sample_rate
+        config.sample_rate = sample_rate
 
         window_size = config.silero_vad.window_size
 
@@ -435,18 +400,7 @@ class ASRNode:
 
         # --- Helper functions ---
 
-        def resample_audio(audio, from_rate, to_rate):
-            """Resample audio using linear interpolation."""
-            if from_rate == to_rate:
-                return audio
-            ratio = to_rate / from_rate
-            new_length = int(len(audio) * ratio)
-            old_indices = np.arange(len(audio))
-            new_indices = np.linspace(0, len(audio) - 1, new_length)
-            return np.interp(new_indices, old_indices, audio)
-
         def save_wav(filepath, audio_data):
-            """Save audio data to WAV file."""
             if isinstance(audio_data, list):
                 audio_data = np.array(audio_data)
             audio_int16 = (audio_data * 32767).astype(np.int16)
@@ -457,7 +411,6 @@ class ASRNode:
                 f.writeframes(audio_int16.tobytes())
 
         def save_wav_from_samples_list(filepath, samples_list):
-            """Concatenate and save multiple sample chunks to WAV file."""
             all_audio = np.concatenate([
                 np.array(s) if isinstance(s, list) else s for s in samples_list
             ])
@@ -468,71 +421,59 @@ class ASRNode:
                 f.setframerate(16000)
                 f.writeframes(audio_int16.tobytes())
 
-        # --- Audio capture via PortAudio callback ---
+        # --- 订阅 /audio/raw, 回调将音频放入队列 ---
         audio_queue = queue.Queue(maxsize=1000)
 
-        def audio_callback(indata, frames, time_info=None, status=None):
-            if status:
-                print(f"Audio stream status: {status}", file=sys.stderr)
+        def audio_callback(msg):
             try:
-                audio_queue.put_nowait(indata.copy())
+                audio_queue.put_nowait(np.array(msg.data, dtype=np.float32))
             except queue.Full:
                 pass
 
+        rospy.Subscriber("/audio/raw", Float32MultiArray, audio_callback, queue_size=20)
+        rospy.loginfo("ASR: 已订阅 /audio/raw")
+
         # --- Main processing loop ---
         try:
-            with sd.InputStream(
-                device=default_input_device_idx,
-                channels=1,
-                callback=audio_callback,
-                samplerate=device_sample_rate,
-                dtype='float32',
-            ):
-                print("Audio stream started, listening...")
+            while not rospy.is_shutdown():
+                try:
+                    samples = audio_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
 
-                while True:
-                    indata = audio_queue.get()
-                    samples = indata.flatten()
+                if all_samples is not None:
+                    all_samples.append(samples)
 
-                    rms = np.sqrt(np.mean(samples ** 2))
-                    max_amp = np.max(np.abs(samples))
+                buffer = np.concatenate([buffer, samples])
+                while len(buffer) > window_size:
+                    vad.accept_waveform(buffer[:window_size])
+                    buffer = buffer[window_size:]
 
-                    if device_sample_rate != target_sample_rate:
-                        samples = resample_audio(samples, device_sample_rate, target_sample_rate)
+                while not vad.empty():
+                    speech_segments.append(vad.front.samples)
+                    vad.pop()
 
-                    if all_samples is not None:
-                        all_samples.append(samples)
+                if speech_segments:
+                    speech_samples = speech_segments.pop(0)
+                    stream = recognizer.create_stream()
+                    stream.accept_waveform(sample_rate, speech_samples)
+                    recognizer.decode_stream(stream)
 
-                    buffer = np.concatenate([buffer, samples])
-                    while len(buffer) > window_size:
-                        vad.accept_waveform(buffer[:window_size])
-                        buffer = buffer[window_size:]
+                    text = stream.result.text.strip().lower()
+                    if len(text):
+                        idx = len(texts)
+                        texts.append(text)
+                        print(f"\n[speaker0]: {text}")
 
-                    while not vad.empty():
-                        speech_segments.append(vad.front.samples)
-                        vad.pop()
+                        asr_rst = String()
+                        asr_rst.data = text
+                        self.publisher.publish(asr_rst)
 
-                    if speech_segments:
-                        speech_samples = speech_segments.pop(0)
-                        stream = recognizer.create_stream()
-                        stream.accept_waveform(target_sample_rate, speech_samples)
-                        recognizer.decode_stream(stream)
-
-                        text = stream.result.text.strip().lower()
-                        if len(text):
-                            idx = len(texts)
-                            texts.append(text)
-                            print(f"\n[speaker0]: {text}")
-
-                            asr_rst = String()
-                            asr_rst.data = text
-                            self.publisher.publish(asr_rst)
-
-                            if save_folder:
-                                segment_count += 1
-                                segment_path = save_folder / f"{base_name}-{segment_count}.wav"
-                                save_wav(segment_path, speech_samples)
-                                print(f"VAD segment saved to {segment_path}")
+                        if save_folder:
+                            segment_count += 1
+                            segment_path = save_folder / f"{base_name}-{segment_count}.wav"
+                            save_wav(segment_path, speech_samples)
+                            print(f"VAD segment saved to {segment_path}")
 
         except KeyboardInterrupt:
             print("\nCaught Ctrl+C. Exiting")

@@ -3,36 +3,33 @@
 """
 Doorbell Node — 门铃检测 ROS 节点
 
-使用 sherpa-onnx AudioTagging (CED) 持续监听麦克风,
+订阅 /audio/raw (Float32MultiArray), 使用 sherpa-onnx AudioTagging (CED)
 检测门铃声 (Doorbell / Ding / Ding-dong) 并通过 ROS 话题发布。
 
 发布话题:
   /doorbell/detected  (std_msgs/String, JSON)  门铃检测结果
 
+订阅话题:
+  /audio/raw          (std_msgs/Float32MultiArray)  来自 audio_capture_node
+
 参数:
-  ~device_name      (str,  default: "default")  音频输入设备名
   ~model_dir        (str,  default: 包内模型路径)
   ~threshold        (float, default: 0.5)       门铃检测概率阈值
   ~buffer_duration  (float, default: 2.0)       每次检测的音频窗口秒数
   ~overlap_duration (float, default: 1.0)       相邻窗口重叠秒数
   ~cooldown_sec     (float, default: 3.0)       两次检测触发的最小间隔
-
-Task1 使用方式:
-  GO_TO_DOOR 阶段可等待 /doorbell/detected 来确认客人按了门铃,
-  或用作 Task1 的自动启动触发条件。
 """
 
 import json
-import logging
 import os
 import sys
+import threading
 import time
 
 import numpy as np
 import rospy
 import sherpa_onnx
-import sounddevice as sd
-from std_msgs.msg import String
+from std_msgs.msg import Float32MultiArray, String
 
 try:
     import rospkg
@@ -54,7 +51,6 @@ class DoorbellNode:
         rospy.init_node("doorbell_node")
 
         # ---- 参数 ----
-        self.device_name = rospy.get_param("~device_name", "default")
         model_dir = rospy.get_param("~model_dir", _default_model_dir())
         self.threshold = rospy.get_param("~threshold", 0.5)
         buffer_duration = rospy.get_param("~buffer_duration", 2.0)
@@ -98,49 +94,38 @@ class DoorbellNode:
         rospy.loginfo(f"  阈值: {self.threshold}, 窗口: {buffer_duration}s, 重叠: {overlap_duration}s")
         rospy.loginfo(f"  冷却: {self.cooldown_sec}s")
 
+        self._buffer = []
+        self._lock = threading.Lock()
+
+        rospy.Subscriber("/audio/raw", Float32MultiArray, self._audio_callback, queue_size=20)
+        rospy.loginfo("DoorbellNode: 已订阅 /audio/raw")
+
+    # ============================================================
+    # 音频回调
+    # ============================================================
+
+    def _audio_callback(self, msg):
+        samples = np.array(msg.data, dtype=np.float32)
+
+        process_now = False
+        with self._lock:
+            self._buffer.append(samples)
+            if len(self._buffer) >= self.buffer_read_count:
+                self._window = np.concatenate(self._buffer)
+                self._buffer = self._buffer[-self.overlap_read_count:] if self.overlap_read_count > 0 else []
+                process_now = True
+
+        if process_now:
+            self._process_window(self._window)
+
     # ============================================================
     # 主循环
     # ============================================================
 
     def run(self):
-        devices = sd.query_devices()
-        if len(devices) == 0:
-            rospy.logerr("DoorbellNode: 未找到音频设备")
-            sys.exit(1)
-
-        default_input_device_idx = sd.default.device[0]
-        if self.device_name != "default":
-            for i, d in enumerate(devices):
-                if self.device_name in d["name"] and d["max_input_channels"] > 0:
-                    default_input_device_idx = i
-                    break
-            else:
-                rospy.logwarn(
-                    f"DoorbellNode: 无法锁定设备 \"{self.device_name}\", 使用默认设备"
-                )
-
-        rospy.loginfo(f"DoorbellNode: 使用设备 [{default_input_device_idx}] {devices[default_input_device_idx]['name']}")
         rospy.loginfo("DoorbellNode: 开始监听门铃...")
-
-        buffer = []
-
         try:
-            with sd.InputStream(
-                device=default_input_device_idx,
-                channels=1,
-                dtype="float32",
-                samplerate=self._sample_rate,
-            ) as stream:
-                while not rospy.is_shutdown():
-                    samples, _ = stream.read(self.samples_per_read)
-                    samples = samples.reshape(-1)
-                    buffer.append(samples)
-
-                    if len(buffer) >= self.buffer_read_count:
-                        all_audio = np.concatenate(buffer)
-                        self._process_window(all_audio)
-                        buffer = buffer[-self.overlap_read_count:] if self.overlap_read_count > 0 else []
-
+            rospy.spin()
         except KeyboardInterrupt:
             rospy.loginfo("DoorbellNode: Ctrl+C, 退出")
 
