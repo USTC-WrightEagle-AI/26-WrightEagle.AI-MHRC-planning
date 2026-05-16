@@ -39,13 +39,19 @@ class AudioCaptureNode:
 
         self.samples_per_chunk = int(self.sample_rate * chunk_duration)
 
+        rospy.loginfo("[AudioCapture] 初始化音频采集节点")
+        rospy.loginfo(f"[AudioCapture] 参数: device_name={self.device_name}, sample_rate={self.sample_rate}, chunk_duration={chunk_duration}s")
+
         devices = sd.query_devices()
         if len(devices) == 0:
-            rospy.logerr("未找到音频设备")
+            rospy.logerr("[AudioCapture] 未找到任何音频设备")
             sys.exit(1)
+
+        rospy.loginfo(f"[AudioCapture] 系统可用音频设备数: {len(devices)}")
 
         if self.device_name == "default":
             self.device_idx = sd.default.device[0]
+            rospy.loginfo(f"[AudioCapture] 使用默认输入设备 (index={self.device_idx})")
         else:
             self.device_idx = None
             for i, d in enumerate(devices):
@@ -53,22 +59,40 @@ class AudioCaptureNode:
                     self.device_idx = i
                     break
 
+            if self.device_idx is None:
+                rospy.logwarn(f"[AudioCapture] 找不到 \"{self.device_name}\"，尝试 fallback 到 pulse")
+                for i, d in enumerate(devices):
+                    if "pulse" in d["name"].lower() and d["max_input_channels"] > 0:
+                        self.device_idx = i
+                        rospy.loginfo(f"[AudioCapture] Fallback 成功: 使用 [{i}] {d['name']}")
+                        break
+
+            if self.device_idx is None:
+                rospy.logwarn(f"[AudioCapture] pulse 不可用，尝试 fallback 到 default")
+                default_idx = sd.default.device[0]
+                if default_idx is not None and default_idx < len(devices):
+                    d = devices[int(default_idx)]
+                    if d["max_input_channels"] > 0:
+                        self.device_idx = int(default_idx)
+                        rospy.loginfo(f"[AudioCapture] Fallback 成功: 使用 default [{self.device_idx}] {d['name']}")
+
         if self.device_idx is None:
-            rospy.logerr(f"找不到设备: \"{self.device_name}\"")
+            rospy.logerr(f"[AudioCapture] 找不到任何可用的输入设备")
+            rospy.loginfo("[AudioCapture] 可用输入设备列表:")
+            for i, d in enumerate(devices):
+                if d["max_input_channels"] > 0:
+                    rospy.loginfo(f"[AudioCapture]   [{i}] {d['name']}")
             sys.exit(1)
 
-        rospy.loginfo(
-            f"AudioCapture: 设备 [{self.device_idx}] {devices[self.device_idx]['name']}"
-        )
-        rospy.loginfo(
-            f"AudioCapture: {self.sample_rate} Hz, chunks={self.samples_per_chunk} samples"
-        )
+        rospy.loginfo(f"[AudioCapture] 输入设备已锁定: [{self.device_idx}] {devices[self.device_idx]['name']}")
+        rospy.loginfo(f"[AudioCapture] 采集参数: {self.sample_rate} Hz, 块大小={self.samples_per_chunk} samples ({chunk_duration}s)")
 
         self._pub = rospy.Publisher("/audio/raw", Float32MultiArray, queue_size=20)
         self._queue = queue.Queue(maxsize=100)
 
         # 发布音频采样率作为参数, 供订阅者查询
         rospy.set_param("/audio/raw/sample_rate", self.sample_rate)
+        rospy.loginfo(f"[AudioCapture] 已发布 /audio/raw/sample_rate 参数 = {self.sample_rate}")
 
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
@@ -88,7 +112,7 @@ class AudioCaptureNode:
                 dtype="float32",
                 blocksize=self.samples_per_chunk,
             ):
-                rospy.loginfo("AudioCapture: 音频流已启动, 发布到 /audio/raw")
+                rospy.loginfo("[AudioCapture] 音频流已启动, 开始发布到 /audio/raw")
                 while not rospy.is_shutdown():
                     try:
                         samples = self._queue.get(timeout=1.0)
@@ -97,7 +121,7 @@ class AudioCaptureNode:
                     except queue.Empty:
                         continue
         except KeyboardInterrupt:
-            rospy.loginfo("AudioCapture: Ctrl+C, 退出")
+            rospy.loginfo("[AudioCapture] Ctrl+C, 退出")
 
 
 def main():

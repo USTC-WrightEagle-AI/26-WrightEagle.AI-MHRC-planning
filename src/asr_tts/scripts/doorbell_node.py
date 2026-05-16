@@ -50,6 +50,8 @@ class DoorbellNode:
     def __init__(self):
         rospy.init_node("doorbell_node")
 
+        rospy.loginfo("[Doorbell] 初始化门铃检测节点")
+
         # ---- 参数 ----
         model_dir = rospy.get_param("~model_dir", _default_model_dir())
         self.threshold = rospy.get_param("~threshold", 0.5)
@@ -57,8 +59,10 @@ class DoorbellNode:
         overlap_duration = rospy.get_param("~overlap_duration", 1.0)
         self.cooldown_sec = rospy.get_param("~cooldown_sec", 3.0)
 
+        rospy.loginfo(f"[Doorbell] 参数: threshold={self.threshold}, buffer={buffer_duration}s, overlap={overlap_duration}s, cooldown={self.cooldown_sec}s")
+
         sample_rate = 16000
-        self.samples_per_read = int(0.2 * sample_rate)  # 200ms
+        self.samples_per_read = int(0.2 * sample_rate)
         self.buffer_read_count = int(buffer_duration / 0.2)
         self.overlap_read_count = int(overlap_duration / 0.2)
         self.overlap_read_count = max(0, min(self.overlap_read_count, self.buffer_read_count - 1))
@@ -68,10 +72,11 @@ class DoorbellNode:
         label_file = os.path.join(model_dir, "class_labels_indices.csv")
 
         if not os.path.isfile(model_file):
-            rospy.logerr(f"DoorbellNode: 模型文件不存在: {model_file}")
+            rospy.logerr(f"[Doorbell] 模型文件不存在: {model_file}")
             sys.exit(1)
 
-        rospy.loginfo(f"DoorbellNode: 加载 AudioTagging 模型...")
+        rospy.loginfo(f"[Doorbell] 模型路径: {model_file}")
+        rospy.loginfo(f"[Doorbell] 正在加载 AudioTagging 模型 (CED)...")
         config = sherpa_onnx.AudioTaggingConfig(
             model=sherpa_onnx.AudioTaggingModelConfig(
                 ced=model_file, num_threads=1, debug=False, provider="cpu"
@@ -80,25 +85,25 @@ class DoorbellNode:
             top_k=5,
         )
         if not config.validate():
-            rospy.logerr("DoorbellNode: AudioTagging 配置无效")
+            rospy.logerr("[Doorbell] AudioTagging 配置无效")
             sys.exit(1)
 
         self.audio_tagger = sherpa_onnx.AudioTagging(config)
+        rospy.loginfo(f"[Doorbell] 模型加载完成, 检测标签: {DOORBELL_LABELS}")
 
         # ---- ROS ----
         self._pub = rospy.Publisher("/doorbell/detected", String, queue_size=10)
         self._last_trigger_time = 0.0
         self._sample_rate = sample_rate
 
-        rospy.loginfo(f"DoorbellNode 初始化完成")
-        rospy.loginfo(f"  阈值: {self.threshold}, 窗口: {buffer_duration}s, 重叠: {overlap_duration}s")
-        rospy.loginfo(f"  冷却: {self.cooldown_sec}s")
+        rospy.loginfo(f"[Doorbell] 已发布 /doorbell/detected 话题")
 
         self._buffer = []
         self._lock = threading.Lock()
 
         rospy.Subscriber("/audio/raw", Float32MultiArray, self._audio_callback, queue_size=20)
-        rospy.loginfo("DoorbellNode: 已订阅 /audio/raw")
+        rospy.loginfo("[Doorbell] 已订阅 /audio/raw 话题")
+        rospy.loginfo("[Doorbell] 节点就绪, 开始监听门铃...")
 
     # ============================================================
     # 音频回调
@@ -123,11 +128,11 @@ class DoorbellNode:
     # ============================================================
 
     def run(self):
-        rospy.loginfo("DoorbellNode: 开始监听门铃...")
+        rospy.loginfo("[Doorbell] 进入主循环")
         try:
             rospy.spin()
         except KeyboardInterrupt:
-            rospy.loginfo("DoorbellNode: Ctrl+C, 退出")
+            rospy.loginfo("[Doorbell] Ctrl+C, 退出")
 
     # ============================================================
     # 检测逻辑

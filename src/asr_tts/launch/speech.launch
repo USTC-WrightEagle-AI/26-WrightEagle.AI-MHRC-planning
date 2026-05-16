@@ -1,7 +1,7 @@
 <launch>
     <!-- ===== 音频设备参数 ===== -->
-    <arg name="mic_id" default="MEETEASY" />
-    <arg name="speaker_id" default="USB2.0 Device" />
+    <arg name="mic_id" default="XFM" />
+    <arg name="speaker_id" default="USB" />
 
     <!-- ===== 功能开关 ===== -->
     <arg name="enable_speaker_doa" default="true" />

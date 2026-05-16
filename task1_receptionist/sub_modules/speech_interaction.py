@@ -23,6 +23,11 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
+from task1_receptionist.sub_modules.topic_names import (
+    TTS_TOPIC,
+    ASR_TOPIC,
+)
+
 
 # ============================================================
 # 抽象基类
@@ -146,7 +151,7 @@ class ROSSpeechInterface(SpeechInterface):
     线程安全: listen() 可在任意线程调用。
     """
 
-    def __init__(self, tts_topic: str = "/tts", asr_topic: str = "/asr"):
+    def __init__(self, tts_topic: str = TTS_TOPIC, asr_topic: str = ASR_TOPIC):
         import rospy
         from std_msgs.msg import String
 
@@ -209,6 +214,7 @@ class ROSSpeechInterface(SpeechInterface):
 def create_speech_interface(use_ros: bool = False, **kwargs) -> SpeechInterface:
     """根据参数创建合适的语音接口"""
     if use_ros:
+        kwargs.pop("script", None)
         return ROSSpeechInterface(**kwargs)
     else:
         script = kwargs.pop("script", None)

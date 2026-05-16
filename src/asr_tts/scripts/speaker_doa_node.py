@@ -70,6 +70,8 @@ class SpeakerDOANode:
     def __init__(self):
         rospy.init_node("speaker_doa_node")
 
+        rospy.loginfo("[SpeakerDOA] 初始化说话人识别 + 声源定位节点")
+
         # ---- 参数 ----
         serial_device = rospy.get_param("~serial_device", "auto")
         baud = rospy.get_param("~baud", 115200)
@@ -87,21 +89,33 @@ class SpeakerDOANode:
         self.min_enroll_speech = rospy.get_param("~min_enroll_speech_seconds", 0.8)
         self.min_detect_speech = rospy.get_param("~min_detect_speech_seconds", 0.15)
 
+        rospy.loginfo(f"[SpeakerDOA] 参数:")
+        rospy.loginfo(f"[SpeakerDOA]   串口: {serial_device}, 波特率: {baud}")
+        rospy.loginfo(f"[SpeakerDOA]   阈值: {self.threshold}, 检测时长: {self.detect_seconds}s, 录入时长: {self.enroll_seconds}s")
+        rospy.loginfo(f"[SpeakerDOA]   阵列: geometry={self.geometry}, mics={self.num_mics}, radius={self.radius_m}m")
+        rospy.loginfo(f"[SpeakerDOA]   通道: {self.active_channels}")
+        rospy.loginfo(f"[SpeakerDOA]   分数阈值: {self.score_threshold}")
+
         # ---- 工作目录 ----
         self.work_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "robot_speaker_doa_bundle", "workdir"
         )
+        rospy.loginfo(f"[SpeakerDOA] 工作目录: {self.work_dir}")
 
         # ---- 模型和数据库 ----
         model_dir = os.path.join(os.path.abspath(self.work_dir), "pretrained_models", "spkrec-ecapa-voxceleb")
         self.db_path = os.path.join(os.path.abspath(self.work_dir), "session_speakers_db.pkl")
         if os.path.exists(self.db_path):
-            os.remove(self.db_path)  # 每次启动清空临时库
+            os.remove(self.db_path)
+            rospy.loginfo("[SpeakerDOA] 已清空上次会话的说话人数据库")
 
         # ---- 设备初始化 ----
-        rospy.loginfo(f"SpeakerDOANode: 初始化麦克风阵列 (device={serial_device})")
+        rospy.loginfo(f"[SpeakerDOA] 正在初始化麦克风阵列 (device={serial_device})...")
         self.mic = M2MicArray(serial_device=serial_device, baudrate=baud)
+        rospy.loginfo(f"[SpeakerDOA] 麦克风阵列已连接: {self.mic.serial_device}")
+
         self.mgr = SpeakerManager(db_path=self.db_path, threshold=self.threshold, model_dir=model_dir)
+        rospy.loginfo(f"[SpeakerDOA] 说话人管理器初始化完成, 模型: {model_dir}")
 
         # ---- 说话人名字映射: speaker_id → human_name ----
         self._name_map = {}
@@ -117,10 +131,9 @@ class SpeakerDOANode:
         self._pub_result = rospy.Publisher("/speaker_doa/result", String, queue_size=10)
         self._sub_enroll = rospy.Subscriber("/speaker_doa/enroll", String, self._on_enroll)
 
-        rospy.loginfo(f"SpeakerDOANode 初始化完成")
-        rospy.loginfo(f"  串口: {self.mic.serial_device}")
-        rospy.loginfo(f"  阈值: {self.threshold}")
-        rospy.loginfo(f"  检测时长: {self.detect_seconds}s, 录入时长: {self.enroll_seconds}s")
+        rospy.loginfo("[SpeakerDOA] 已发布 /speaker_doa/result 话题")
+        rospy.loginfo("[SpeakerDOA] 已订阅 /speaker_doa/enroll 话题")
+        rospy.loginfo("[SpeakerDOA] 节点初始化完成")
 
     # ============================================================
     # ROS 回调
@@ -131,7 +144,7 @@ class SpeakerDOANode:
         try:
             cmd = json.loads(msg.data)
         except json.JSONDecodeError:
-            rospy.logwarn(f"SpeakerDOANode: 无效的 enroll 消息: {msg.data}")
+            rospy.logwarn(f"[SpeakerDOA] 无效的 enroll 消息: {msg.data}")
             return
 
         command = cmd.get("command", "")
@@ -139,12 +152,12 @@ class SpeakerDOANode:
             duration = float(cmd.get("duration", self.enroll_seconds))
             speaker_name = cmd.get("speaker_name", None)
             self._enroll_queue.put({"type": "enroll", "duration": duration, "speaker_name": speaker_name})
-            rospy.loginfo(f"SpeakerDOANode: 收到录入指令 name={speaker_name}, duration={duration}s")
+            rospy.loginfo(f"[SpeakerDOA] 收到录入指令: name={speaker_name}, duration={duration}s")
         elif command == "forget_all":
             self._enroll_queue.put({"type": "forget_all"})
-            rospy.loginfo("SpeakerDOANode: 收到清除指令 — 清空说话人库")
+            rospy.loginfo("[SpeakerDOA] 收到清除指令 — 清空说话人库")
         else:
-            rospy.logwarn(f"SpeakerDOANode: 未知指令: {command}")
+            rospy.logwarn(f"[SpeakerDOA] 未知指令: {command}")
 
     # ============================================================
     # 检测主循环 (后台线程)
@@ -153,10 +166,12 @@ class SpeakerDOANode:
     def run(self):
         thread = threading.Thread(target=self._detection_loop, daemon=True)
         thread.start()
-        rospy.loginfo("SpeakerDOANode: 检测循环已启动, 进入 ROS spin")
+        rospy.loginfo("[SpeakerDOA] 检测循环已启动, 进入 ROS spin")
         rospy.spin()
+        rospy.loginfo("[SpeakerDOA] 收到关闭信号, 等待检测线程结束...")
         self._stop_event.set()
         thread.join(timeout=3.0)
+        rospy.loginfo("[SpeakerDOA] 节点已退出")
 
     def _detection_loop(self):
         while not self._stop_event.is_set():
@@ -175,7 +190,7 @@ class SpeakerDOANode:
                 self._do_detect()
 
             except Exception as exc:
-                rospy.logerr(f"SpeakerDOANode 检测循环异常: {exc}")
+                rospy.logerr(f"[SpeakerDOA] 检测循环异常: {exc}")
                 time.sleep(0.5)
 
     # ============================================================
@@ -298,7 +313,7 @@ class SpeakerDOANode:
             "action": res.get("action"),
             "score": res.get("score"),
         })
-        rospy.loginfo(f"SpeakerDOANode: 录入完成 id={speaker_id} name={speaker_name}")
+        rospy.loginfo(f"[SpeakerDOA] 录入完成: id={speaker_id}, name={speaker_name}")
 
     def _do_forget_all(self):
         self.mgr.db.clear()
@@ -311,9 +326,10 @@ class SpeakerDOANode:
     # ============================================================
 
     def _next_capture_paths(self, prefix):
-        os.makedirs(self.work_dir, exist_ok=True)
+        tmp_base = os.path.join("/tmp", "speaker_doa")
+        os.makedirs(tmp_base, exist_ok=True)
         token = f"{prefix}_{int(time.time() * 1000)}"
-        out_dir = os.path.join(self.work_dir, token)
+        out_dir = os.path.join(tmp_base, token)
         os.makedirs(out_dir, exist_ok=True)
         return {
             "out_dir": out_dir,
