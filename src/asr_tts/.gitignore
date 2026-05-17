@@ -1,10 +1,16 @@
-# Exclude model files from version control
+# Model files (downloaded at runtime)
 models/*
+robot_speaker_doa_bundle/workdir/
+
+# Audio recordings (runtime artifacts)
 recordings/
+output.wav
+
+# Build artifacts
 src/
 include/
 
-# Audio output (large wav files)
+# Test outputs
 test/audio_output/
 test/voice_comparison/
 
@@ -13,5 +19,5 @@ __pycache__/
 test/__pycache__/
 **/__pycache__/
 
-# python-api-examples (official examples, not needed in repo)
+# python-api-examples
 python-api-examples/

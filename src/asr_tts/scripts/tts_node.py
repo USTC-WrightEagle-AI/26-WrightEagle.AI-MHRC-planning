@@ -170,16 +170,7 @@ def create_tts(args):
 
 
 def play_audio(audio, sample_rate, device=None, wav_path=None):
-    """Play audio, preferring system player (paplay) over sounddevice."""
-
-    if wav_path and os.path.exists(wav_path):
-        try:
-            print(f"Using system player: paplay {wav_path}")
-            subprocess.run(['paplay', wav_path], check=True)
-            print("Playback finished")
-            return
-        except Exception as e:
-            print(f"paplay failed: {e}, falling back to sounddevice")
+    """Play audio using sounddevice with specified device."""
 
     try:
         if device is not None:
@@ -187,7 +178,7 @@ def play_audio(audio, sample_rate, device=None, wav_path=None):
             device_sample_rate = int(device_info['default_samplerate'])
 
             if sample_rate != device_sample_rate:
-                print(f"Resampling: {sample_rate} Hz -> {device_sample_rate} Hz")
+                rospy.loginfo(f"[TTS] 重采样: {sample_rate} Hz -> {device_sample_rate} Hz")
                 ratio = device_sample_rate / sample_rate
                 new_length = int(len(audio) * ratio)
                 old_indices = np.arange(len(audio))
@@ -195,13 +186,19 @@ def play_audio(audio, sample_rate, device=None, wav_path=None):
                 audio = np.interp(new_indices, old_indices, audio)
                 sample_rate = device_sample_rate
 
+            rospy.loginfo(f"[TTS] 播放设备: [{device}] {device_info['name']}")
+
             sd.play(audio, sample_rate, device=device)
         else:
+            rospy.loginfo("[TTS] 使用默认播放设备")
             sd.play(audio, sample_rate)
+
+        audio_duration = len(audio) / sample_rate
+        rospy.loginfo(f"[TTS] 开始播放, 时长约 {audio_duration:.2f}s")
         sd.wait()
-        print("Playback finished")
+        rospy.loginfo("[TTS] 播放完成")
     except Exception as e:
-        print(f"Error playing audio: {e}")
+        rospy.logerr(f"[TTS] 播放音频时出错: {e}")
 
 
 def generate_speech(tts, text, sid=0, speed=1.0):
@@ -212,20 +209,19 @@ def generate_speech(tts, text, sid=0, speed=1.0):
         tuple: (audio_samples, sample_rate)
     """
 
+    rospy.loginfo(f"[TTS] 开始生成语音: '{text[:50]}...'")
     start = time.time()
     audio = tts.generate(text, sid=sid, speed=speed)
     end = time.time()
 
     if len(audio.samples) == 0:
-        raise ValueError("Error in generating audio")
+        raise ValueError("TTS 生成音频失败")
 
     elapsed_seconds = end - start
     audio_duration = len(audio.samples) / audio.sample_rate
     real_time_factor = elapsed_seconds / audio_duration
 
-    print(f"TTS generation time: {elapsed_seconds:.3f}s")
-    print(f"Audio duration: {audio_duration:.3f}s")
-    print(f"RTF: {real_time_factor:.3f}")
+    rospy.loginfo(f"[TTS] 生成耗时: {elapsed_seconds:.3f}s, 音频时长: {audio_duration:.3f}s, RTF: {real_time_factor:.3f}")
 
     return audio.samples, audio.sample_rate
 
@@ -237,31 +233,62 @@ class TTSNode:
         rospy.init_node(node_name)
         self.args, _ = get_args()
 
+        rospy.loginfo("[TTS] 初始化 TTS 节点")
+        rospy.loginfo(f"[TTS] 模型路径: {self.args.tts_model}")
+        rospy.loginfo(f"[TTS] 参数: speed={self.args.speed}, sid={self.args.sid}, provider={self.args.provider}")
+
         target_name = rospy.get_param("~device_name", "default")
         self.output_device = None
 
         devices = sd.query_devices()
-        rospy.loginfo(f"[TTS] Trying to lock output device: \"{target_name}\"")
+        rospy.loginfo(f"[TTS] 系统可用播放设备数: {len(devices)}")
+        rospy.loginfo(f"[TTS] 正在查找输出设备: \"{target_name}\"")
 
         for i, d in enumerate(devices):
             if target_name in d['name'] and d['max_output_channels'] > 0:
                 self.output_device = i
-                rospy.loginfo(f"[TTS] Output device locked: [{i}] {d['name']}")
+                rospy.loginfo(f"[TTS] 输出设备已锁定: [{i}] {d['name']}")
                 break
 
         if self.output_device is None:
-            rospy.logerr(f"[TTS] Cannot find output device: \"{target_name}\"")
-            rospy.logerr("Run 'python3 -m sounddevice' to check device names.")
+            rospy.logwarn(f"[TTS] 找不到 \"{target_name}\"，尝试 fallback 到 pulse")
+            for i, d in enumerate(devices):
+                if "pulse" in d['name'].lower() and d['max_output_channels'] > 0:
+                    self.output_device = i
+                    rospy.loginfo(f"[TTS] Fallback 成功: 使用 [{i}] {d['name']}")
+                    break
+
+        if self.output_device is None:
+            rospy.logwarn(f"[TTS] pulse 不可用，尝试 fallback 到 default")
+            default_idx = sd.default.device[1]
+            if default_idx is not None and default_idx < len(devices):
+                d = devices[int(default_idx)]
+                if d['max_output_channels'] > 0:
+                    self.output_device = int(default_idx)
+                    rospy.loginfo(f"[TTS] Fallback 成功: 使用 default [{self.output_device}] {d['name']}")
+
+        if self.output_device is None:
+            rospy.logerr(f"[TTS] 找不到任何可用的输出设备")
+            rospy.loginfo("[TTS] 可用播放设备列表:")
+            for i, d in enumerate(devices):
+                if d['max_output_channels'] > 0:
+                    rospy.loginfo(f"[TTS]   [{i}] {d['name']}")
             sys.exit(1)
 
-        rospy.loginfo("Initializing TTS engine...")
+        rospy.loginfo("[TTS] 正在初始化 TTS 引擎...")
         self.tts = create_tts(self.args)
+        rospy.loginfo("[TTS] TTS 引擎初始化完成")
+
+        # 发布 TTS 播放状态, 供 ASR 节点用于回声消除
+        self._pub_tts_status = rospy.Publisher("/tts/playing", String, queue_size=10, latch=True)
+
         self.tts_subscription_ = rospy.Subscriber('tts', String, self.TTS, queue_size=10)
-        rospy.loginfo("TTS Node is READY!")
+        rospy.loginfo("[TTS] 已订阅 /tts 话题")
+        rospy.loginfo("[TTS] 节点就绪, 等待文本输入!")
 
     def TTS(self, msg: String):
         """Callback: generate and play speech from received text."""
-        print(f"Generating speech for: '{msg.data}'")
+        rospy.loginfo(f"[TTS] 收到文本: '{msg.data}'")
         audio, sample_rate = generate_speech(self.tts, msg.data, self.args.sid, self.args.speed)
 
         sf.write(
@@ -270,15 +297,20 @@ class TTSNode:
             samplerate=sample_rate,
             subtype="PCM_16",
         )
-        print(f"Saved to {self.args.output}")
+        rospy.loginfo(f"[TTS] 音频已保存到: {self.args.output}")
 
         if self.args.play:
-            print("Playing audio...")
+            rospy.loginfo("[TTS] 开始播放音频")
+            # 通知 ASR 节点暂停识别 (回声消除)
+            self._pub_tts_status.publish(String(data="playing"))
             play_audio(
                 audio, sample_rate,
                 device=self.output_device,
                 wav_path=self.args.output,
             )
+            # 播放完成, 通知 ASR 恢复识别
+            self._pub_tts_status.publish(String(data="idle"))
+            rospy.loginfo("[TTS] 播放完成, ASR 已恢复")
 
 
 def main():

@@ -41,3 +41,6 @@ logs/
 .claude
 .omc
 
+# 启动脚本
+start_all.sh
+

@@ -1,52 +1,50 @@
 <launch>
-    <!-- Audio device parameters -->
-    <arg name="mic_id" default="MEETEASY" />
-    <arg name="speaker_id" default="USB2.0 Device" />
+    <!-- ===== 音频设备参数 ===== -->
+    <arg name="mic_id" default="XFM" />
+    <arg name="speaker_id" default="USB" />
 
-    <!-- ASR node type selection: only one ASR node is launched at a time -->
-    <!-- Valid values:
-         asr_node              - VAD + offline ASR (default, SenseVoice/Whisper/Paraformer)
-         streaming_endpoint    - Streaming ASR with endpoint detection (Zipformer Transducer)
-         vad_streaming         - VAD + streaming ASR (Zipformer, no speaker ID)
-         dynamic_vad           - VAD + offline ASR + dynamic speaker registration
-         dynamic_vad_streaming - VAD + streaming ASR + dynamic speaker registration
-    -->
-    <arg name="asr_type" default="asr_node" doc="ASR node type to launch" />
+    <!-- ===== 功能开关 ===== -->
+    <arg name="enable_speaker_doa" default="true" />
+    <arg name="enable_doorbell" default="true" />
 
-    <!-- TTS node (always launched) -->
+    <!-- ===== 音频采集节点 (唯一打开麦克风的节点) ===== -->
+    <!-- 发布 /audio/raw (Float32MultiArray), 供 ASR / Doorbell 订阅 -->
+    <node pkg="asr_tts" type="audio_capture_node.py" name="audio_capture_node" output="screen">
+        <param name="device_name" value="$(arg mic_id)" />
+        <param name="sample_rate" value="16000" />
+        <param name="chunk_duration" value="0.2" />
+    </node>
+
+    <!-- ===== TTS 节点 (必须) ===== -->
     <node pkg="asr_tts" type="tts_node.py" name="tts_node" output="screen">
         <param name="device_name" value="$(arg speaker_id)" />
         <param name="play" value="true" />
     </node>
 
-    <!-- ASR node (selected by asr_type) -->
-    <group if="$(eval arg('asr_type') == 'asr_node')">
-        <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen">
-            <param name="device_name" value="$(arg mic_id)" />
-        </node>
-    </group>
+    <!-- ===== ASR 节点 (必须, 订阅 /audio/raw) ===== -->
+    <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen" />
 
-    <group if="$(eval arg('asr_type') == 'streaming_endpoint')">
-        <node pkg="asr_tts" type="streaming_asr_endpoint_node.py" name="streaming_asr_endpoint_node" output="screen">
-            <param name="device_name" value="$(arg mic_id)" />
-        </node>
-    </group>
+    <!-- ===== Speaker DOA 节点 (说话人识别 + 声源定位) ===== -->
+    <node pkg="asr_tts" type="speaker_doa_node.py" name="speaker_doa_node" output="screen"
+          if="$(arg enable_speaker_doa)">
+        <param name="serial_device" value="auto" />
+        <param name="baud" value="115200" />
+        <param name="threshold" value="0.3" />
+        <param name="detect_seconds" value="0.5" />
+        <param name="enroll_seconds" value="5.0" />
+        <param name="active_channels" value="0,1,2,3,4,5" />
+        <param name="geometry" value="circle6" />
+        <param name="num_mics" value="6" />
+        <param name="radius_m" value="0.035" />
+        <param name="score_threshold" value="0.0" />
+    </node>
 
-    <group if="$(eval arg('asr_type') == 'vad_streaming')">
-        <node pkg="asr_tts" type="vad_streaming_asr_node.py" name="vad_streaming_asr_node" output="screen">
-            <param name="device_name" value="$(arg mic_id)" />
-        </node>
-    </group>
-
-    <group if="$(eval arg('asr_type') == 'dynamic_vad')">
-        <node pkg="asr_tts" type="dynamic_vad_asr_node.py" name="dynamic_vad_asr_node" output="screen">
-            <param name="device_name" value="$(arg mic_id)" />
-        </node>
-    </group>
-
-    <group if="$(eval arg('asr_type') == 'dynamic_vad_streaming')">
-        <node pkg="asr_tts" type="dynamic_vad_streaming_asr_node.py" name="dynamic_vad_streaming_asr_node" output="screen">
-            <param name="device_name" value="$(arg mic_id)" />
-        </node>
-    </group>
+    <!-- ===== Doorbell 节点 (订阅 /audio/raw) ===== -->
+    <node pkg="asr_tts" type="doorbell_node.py" name="doorbell_node" output="screen"
+          if="$(arg enable_doorbell)">
+        <param name="threshold" value="0.5" />
+        <param name="buffer_duration" value="2.0" />
+        <param name="overlap_duration" value="1.0" />
+        <param name="cooldown_sec" value="3.0" />
+    </node>
 </launch>
