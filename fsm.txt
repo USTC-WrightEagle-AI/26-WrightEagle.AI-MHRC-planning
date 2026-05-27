@@ -1,0 +1,113 @@
+FSM
+
+first, define the states available
+
+1 [listening state]:input: continuous audio stream; function: real-time voice activity detection (VAD) and audio signal reception; transmits received audio to llm; output: wake signal / trigger signal to start processing
+
+2 [talking state]:input:human voice; function: respond human talking; output: robot voice
+
+
+
+
+3 [name state]:the state which identifies person by the name
+
+
+
+4 [navigation state]:the state which takes 3d position on map as input and drive robot to the place
+
+
+
+5 [gest/pose recognition state]:the state which observes and identifies person with a specific pose/gesture, then output its position 
+
+
+
+15 [gest/pose counting state]:the state which observes and identifies people with a specific pose/gesture, then output total number
+
+
+
+6 [person tracking state]:the state which keeps track of a person and output its live 3d position
+
+
+7 [clothes recognition state]:the state which observes and identifies person by the clothes color, then output its position 
+
+
+17 [clothes counting state]:the state which observes and identifies person by the clothes color, then output total number
+
+
+8 [object search state]:the state which looks for an object by its name and output its live 3d position 
+
+
+9 [object grasp state]:the state which grasps an object, the object is given by its name
+
+
+10 [object dump state]:the state which the robot lets go of the object it is grasping, the position is given by 3d position
+
+
+
+
+ros interaction interactied through ros
+llm thinking + using 
+
+
+
+if instruction is "{goVerb} {toLocPrep} the {loc_room} then {FOLLOWUP:atLoc}"
+
+
+
+    save the {FOLLOWUP:atLoc}, input 3d position, [navigation state]，then judge by {FOLLOWUP:atLoc}
+    
+    if {FOLLOWUP:atLoc} is "{findVerb} the {gestPers_posePers} and {FOLLOWUP:foundPers}"
+        save the {FOLLOWUP:foundPers} , then 5 &6& 4, then judge
+
+            if {FOLLOWUP:foundPers} is "{talkVerb} {talk}"
+                2, finale
+            elif {FOLLOWUP:foundPers} is "{followVerb} them" or "{followVerb} them {toLocPrep} the {loc2_room2}"
+                6 & 4, finale
+            
+            elif {FOLLOWUP:foundPers} is "{guideVerb} them {toLocPrep} the {loc2_room2}"
+                input 3d position, [navigation state], finale                                                                    #Q:go to room, do they have the position directly?
+            
+            endif
+    
+    elif {FOLLOWUP:atLoc} is "{meetVerb} {name} and {FOLLOWUP:foundPers}"
+        save the {FOLLOWUP:foundPers} , then 6, then judge
+            
+            if {FOLLOWUP:foundPers} is "{talkVerb} {talk}"
+                2, finale
+            elif {FOLLOWUP:foundPers} is "{followVerb} them" or "{followVerb} them {toLocPrep} the {loc2_room2}"
+                6 & 4, finale
+            
+            elif {FOLLOWUP:foundPers} is "{guideVerb} them {toLocPrep} the {loc2_room2}"
+                input 3d position, [navigation state] , finale                                                                      #Q:go to room, do they have the position directly?
+            
+            endif
+
+    elif {FOLLOWUP:atLoc} is "{findVerb} {art} {obj_singCat} and {FOLLOWUP:foundObj}"
+        save {FOLLOWUP:foundObj}. then 7. then judge
+
+            if {FOLLOWUP:foundObj} is "{takeVerb} it and {FOLLOWUP:hasObj}",
+                save {FOLLOWUP:hasObj}, then 8, then judge
+
+                if {FOLLOWUP:hasObj} is "throw it in the trash"
+                    input name "trash",then 7, then 9, then finale
+                
+                elif {FOLLOWUP:hasObj} is "{placeVerb} it {onLocPrep} the {plcmtLoc2}"
+                    input {plcmtLoc2}, then7, then 9, then finale
+
+                elif {FOLLOWUP:hasObj} is "{deliverVerb} it to me"
+                    6, then 9, then finale      
+                                                                                                         # too much detail, look again
+                elif {FOLLOWUP:hasObj} is "{deliverVerb} it {deliverPrep} the {gestPers_posePers} {inLocPrep} the {room}"
+                    5, then 6&4, then 9, then finale
+                
+                elif {FOLLOWUP:hasObj} is "{deliverVerb} it {deliverPrep} {name} {inLocPrep} the {room}"
+                    4, then 5&6&4, then 9, then finale
+
+                endif
+            
+            endif
+    
+    endif
+
+
+

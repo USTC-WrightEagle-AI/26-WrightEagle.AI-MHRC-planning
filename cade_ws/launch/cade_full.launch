@@ -1,0 +1,39 @@
+<launch>
+  <!-- ========================================================= -->
+  <!-- CADE Full System Launch                                    -->
+  <!-- Architecture: Modular ROS Pub/Sub                          -->
+  <!--                                                            -->
+  <!-- Nodes:                                                     -->
+  <!--   1. cade_brain:  LLM controller, world model, skills      -->
+  <!--   2. cade_vision: YOLO + RealSense, 3D detections          -->
+  <!--   3. cade_voice:  ASR (speech recognition)                  -->
+  <!--   4. cade_voice:  TTS (text-to-speech)                      -->
+  <!--                                                            -->
+  <!-- Topics:                                                    -->
+  <!--   /asr                -  ASR results (voice -> brain)      -->
+  <!--   /tts                -  TTS requests (brain -> voice)     -->
+  <!--   /cade/task_cmd      -  Brain commands to vision/nav      -->
+  <!--   /cade/task_status   -  Task results back to brain        -->
+  <!--   /vision/detections_3d - 3D detection results             -->
+  <!-- ========================================================= -->
+
+  <!-- Voice Layer: ASR -->
+  <node name="asr_node" pkg="cade_voice" type="asr_node.py" output="screen">
+    <param name="model_path" value="$(find cade_voice)/models/vosk-model-small-cn-0.22"/>
+  </node>
+
+  <!-- Voice Layer: TTS -->
+  <node name="tts_node" pkg="cade_voice" type="tts_node.py" output="screen"/>
+
+  <!-- Vision Layer: Open Vision Node -->
+  <node name="open_vision" pkg="cade_vision" type="open_vision_node.py" output="screen"
+        args="--model yolo11x-seg.pt --device cuda">
+  </node>
+
+  <!-- Brain Layer: Brain Node (start last to ensure topics are ready) -->
+  <node name="cade_brain" pkg="cade_brain" type="brain_node.py" output="screen"
+        launch-prefix="bash -c 'sleep 2; exec $0 $@'">
+    <param name="prompt_mode" value="default"/>
+  </node>
+
+</launch>

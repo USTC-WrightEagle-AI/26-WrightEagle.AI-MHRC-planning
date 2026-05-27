@@ -1,0 +1,5 @@
+how to run input command without the use of microphone
+
+CADE_MODE=LOCAL CADE_LOCAL_MODEL=qwen3:8b rosrun cade_brain brain_node.py --mode debug --env "你正坐在 Fedora 实验室的桌子上，目前只能通过文本指令交流。"
+
+rostopic pub -1 /asr std_msgs/String "data: 'Go to the kitchen, find a waving person, then follow them'"
