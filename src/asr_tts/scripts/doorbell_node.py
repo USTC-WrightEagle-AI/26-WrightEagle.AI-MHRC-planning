@@ -43,7 +43,7 @@ def _default_model_dir():
     return os.path.join(_pkg_path, "models", "sherpa-onnx-ced-mini-audio-tagging-2024-04-19")
 
 
-DOORBELL_LABELS = {"Doorbell", "Ding", "Ding-dong"}
+DOORBELL_LABELS = {"Doorbell", "Ding", "Ding-dong", "Music", "Chime"}
 
 
 class DoorbellNode:

@@ -15,8 +15,8 @@ import sherpa_onnx
 import sounddevice as sd
 
 def create_audio_tagger():
-    model_file = "./models/sherpa-onnx-ced-mini-audio-tagging-2024-04-19/model.int8.onnx"
-    label_file = "./models/sherpa-onnx-ced-mini-audio-tagging-2024-04-19/class_labels_indices.csv"
+    model_file = "../models/sherpa-onnx-ced-mini-audio-tagging-2024-04-19/model.int8.onnx"
+    label_file = "../models/sherpa-onnx-ced-mini-audio-tagging-2024-04-19/class_labels_indices.csv"
 
     if not Path(model_file).is_file():
         raise ValueError(f"Please download {model_file}")
@@ -54,12 +54,12 @@ def main():
     logging.info("Now, listening for audio events...")
 
     sample_rate = 16000
-    samples_per_read = int(0.2 * sample_rate)  # 200ms per read
-    buffer_duration = 2.0                       # 检测间隔 2秒
-    buffer_read_count = int(buffer_duration / 0.2)  # 10 reads
-    overlap_read_count = 10                      # 保留10个reads重叠 (2.0秒)
+    samples_per_read = int(0.2 * sample_rate)
+    buffer_duration = 2.0
+    buffer_read_count = int(buffer_duration / 0.2)
+    overlap_read_count = 5
 
-    buffer = []  # 音频缓冲
+    buffer = []
 
     with sd.InputStream(channels=1, dtype="float32", samplerate=sample_rate) as stream:
         while True:
@@ -68,27 +68,16 @@ def main():
             buffer.append(samples)
 
             if len(buffer) >= buffer_read_count:
-                # 累积满2秒，合并音频
                 all_audio = np.concatenate(buffer)
 
-                # 创建新流并检测
                 s = audio_tagger.create_stream()
                 s.accept_waveform(sample_rate, all_audio)
                 result = audio_tagger.compute(s)
 
-                # 门铃检测逻辑
-                flag = False
-                prob = 0.0
-                for event in result:
-                    if event.name == "Doorbell" or event.name == "Ding" or event.name == "Ding-dong":
-                        prob += event.prob
-                    if prob > 0.5:
-                        flag = True
+                if result:
+                    top = result[0]
+                    logging.info(f"检测结果: {top.name}, 概率为 {top.prob:.2f}")
 
-                if flag:
-                    logging.info(f"检测到门铃声，概率为 {prob:.2f}")
-
-                # 保留重叠部分，避免漏检
                 buffer = buffer[-overlap_read_count:]
 
 if __name__ == "__main__":

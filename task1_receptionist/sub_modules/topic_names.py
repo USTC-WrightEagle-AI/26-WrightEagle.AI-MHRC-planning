@@ -17,14 +17,14 @@ data 字段为可选, 具体内容因模块而异。
 # 门铃
 # ============================================================
 DOORBELL_TOPIC = "/doorbell/detected"
-DOORBELL_TIMEOUT = 300.0
+DOORBELL_TIMEOUT = 30.0
 
 # ============================================================
 # 导航
 # ============================================================
 NAV_COMMAND_TOPIC = "/navigation/command"
 NAV_RESULT_TOPIC = "/navigation/result"
-NAV_TIMEOUT = 120.0
+NAV_TIMEOUT = 30.0
 
 NAV_CMD_GO_TO_DOOR = "导航到门口"
 NAV_CMD_GO_TO_LIVING_ROOM = "导航到客厅"
@@ -37,7 +37,7 @@ NAV_CMD_TURN_TO_ANGLE = "转向角度"
 # ============================================================
 VISION_COMMAND_TOPIC = "/vision/command"
 VISION_RESULT_TOPIC = "/vision/result"
-VISION_TIMEOUT = 120.0
+VISION_TIMEOUT = 30.0
 
 VISION_CMD_DESCRIBE_PERSON = "识别人物外貌"
 VISION_CMD_FIND_HOST = "寻找host"
@@ -48,7 +48,7 @@ VISION_CMD_TRACK_PERSON = "跟踪人物"
 # ============================================================
 MANIP_COMMAND_TOPIC = "/manipulation/command"
 MANIP_RESULT_TOPIC = "/manipulation/result"
-MANIP_TIMEOUT = 60.0
+MANIP_TIMEOUT = 30.0
 
 MANIP_CMD_POINT_SEAT = "指向空座"
 MANIP_CMD_WAIT_FOR_BAG = "等待放包"
@@ -60,7 +60,7 @@ MANIP_CMD_PLACE_BAG = "放包到指定位置"
 SPEAKER_DOA_ENROLL_TOPIC = "/speaker_doa/enroll"
 SPEAKER_DOA_COMMAND_TOPIC = "/speaker_doa/command"
 SPEAKER_DOA_RESULT_TOPIC = "/speaker_doa/result"
-SPEAKER_DOA_TIMEOUT = 60.0
+SPEAKER_DOA_TIMEOUT = 30.0
 SPEAKER_DOA_FACE_TIMEOUT = 10.0
 
 SPEAKER_DOA_CMD_LOCATE = "声源定位"

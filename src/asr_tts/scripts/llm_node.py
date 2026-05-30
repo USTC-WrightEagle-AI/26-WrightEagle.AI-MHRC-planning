@@ -1,40 +1,49 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-LLM Node - 大模型 ROS 服务节点
+LLM Node - 通用大模型 ROS 代理节点
 
-订阅 /llm/request (std_msgs/String, JSON), 调用 LLM 进行信息提取,
-将结果发布到 /llm/response (std_msgs/String, JSON)。
+纯代理: 接收 messages → 调用 LLM → 返回原始文本输出。
+不关心任务类型、Prompt 构造、输出格式解析, 这些由调用方负责。
 
-支持的任务类型 (task 字段):
-  - extract_guest_info: 提取客人姓名和饮品偏好
-  - extract_name:       提取客人姓名
-  - extract_drink:      提取饮品偏好
+订阅话题:
+  /llm/request  (std_msgs/String, JSON)  LLM 请求
+
+发布话题:
+  /llm/response (std_msgs/String, JSON)  LLM 响应
+
+请求格式:
+  {
+    "request_id": "uuid",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant..."},
+      {"role": "user", "content": "My name is Alice and I'd like some orange juice"}
+    ],
+    "temperature": 0.1,
+    "max_tokens": 512
+  }
+
+响应格式:
+  {
+    "request_id": "uuid",
+    "status": "success" | "error",
+    "text": "raw LLM output string",
+    "error": null | "error message"
+  }
+
+参数:
+  ~request_topic   (str,  default: /llm/request)
+  ~response_topic  (str,  default: /llm/response)
+  ~max_concurrent  (int,  default: 3)       最大并发请求数
+  ~default_temperature (float, default: 0.1)
+  ~default_max_tokens  (int,   default: 512)
 
 依赖:
   - brain.llm_client.LLMClient (OpenAI 兼容接口)
-  - config.Config (LLM 配置)
 
 启动:
   rosrun asr_tts llm_node.py
   或: python src/asr_tts/scripts/llm_node.py
-
-话题协议:
-  请求: /llm/request
-  {
-    "request_id": "uuid",
-    "task": "extract_guest_info",
-    "text": "My name is Alice and I'd like some orange juice",
-    "context": {"role": "guest1"}
-  }
-
-  响应: /llm/response
-  {
-    "request_id": "uuid",
-    "status": "success",
-    "result": {"name": "Alice", "drink": "orange juice"},
-    "error": null
-  }
 """
 
 import json
@@ -50,64 +59,8 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 
-EXTRACT_GUEST_INFO_PROMPT = (
-    "You are an information extraction assistant for a robot receptionist. "
-    "Extract the guest's name and preferred drink from the following text. "
-    "If the name cannot be determined, set it to null. "
-    "If the drink cannot be determined, set it to null. "
-    "Output ONLY a JSON object with keys \"name\" and \"drink\". "
-    "Do not output anything else.\n\n"
-    "Examples:\n"
-    "Input: \"My name is Alice and I would like some orange juice\"\n"
-    "Output: {\"name\": \"Alice\", \"drink\": \"orange juice\"}\n\n"
-    "Input: \"I'm Bob, coffee please\"\n"
-    "Output: {\"name\": \"Bob\", \"drink\": \"coffee\"}\n\n"
-    "Input: \"Hi, I'm Sarah\"\n"
-    "Output: {\"name\": \"Sarah\", \"drink\": null}\n\n"
-    "Input: \"Can I get some cola?\"\n"
-    "Output: {\"name\": null, \"drink\": \"cola\"}\n\n"
-    "Now extract from:\n"
-)
-
-EXTRACT_NAME_PROMPT = (
-    "Extract the person's name from the following text. "
-    "Output ONLY a JSON object with key \"name\". "
-    "If no name is found, set it to null. "
-    "Do not output anything else.\n\n"
-    "Examples:\n"
-    "Input: \"My name is Alice\"\n"
-    "Output: {\"name\": \"Alice\"}\n\n"
-    "Input: \"I'm Bob\"\n"
-    "Output: {\"name\": \"Bob\"}\n\n"
-    "Input: \"Hi there\"\n"
-    "Output: {\"name\": null}\n\n"
-    "Now extract from:\n"
-)
-
-EXTRACT_DRINK_PROMPT = (
-    "Extract the preferred drink from the following text. "
-    "Output ONLY a JSON object with key \"drink\". "
-    "If no drink is found, set it to null. "
-    "Do not output anything else.\n\n"
-    "Examples:\n"
-    "Input: \"I'd like some orange juice\"\n"
-    "Output: {\"drink\": \"orange juice\"}\n\n"
-    "Input: \"Coffee please\"\n"
-    "Output: {\"drink\": \"coffee\"}\n\n"
-    "Input: \"I'm fine thanks\"\n"
-    "Output: {\"drink\": null}\n\n"
-    "Now extract from:\n"
-)
-
-TASK_PROMPTS = {
-    "extract_guest_info": EXTRACT_GUEST_INFO_PROMPT,
-    "extract_name": EXTRACT_NAME_PROMPT,
-    "extract_drink": EXTRACT_DRINK_PROMPT,
-}
-
-
 class LLMNode:
-    """LLM ROS 服务节点"""
+    """通用 LLM ROS 代理节点"""
 
     def __init__(self):
         rospy.init_node("llm_node", anonymous=False)
@@ -115,6 +68,8 @@ class LLMNode:
         self._request_topic = rospy.get_param("~request_topic", "/llm/request")
         self._response_topic = rospy.get_param("~response_topic", "/llm/response")
         self._max_concurrent = rospy.get_param("~max_concurrent", 3)
+        self._default_temperature = rospy.get_param("~default_temperature", 0.1)
+        self._default_max_tokens = rospy.get_param("~default_max_tokens", 512)
 
         self._semaphore = threading.Semaphore(self._max_concurrent)
 
@@ -128,6 +83,12 @@ class LLMNode:
 
         rospy.loginfo("[LLM-Node] 就绪, 请求话题: %s, 响应话题: %s",
                       self._request_topic, self._response_topic)
+        rospy.loginfo("[LLM-Node] 参数: max_concurrent=%d, default_temperature=%.2f, default_max_tokens=%d",
+                      self._max_concurrent, self._default_temperature, self._default_max_tokens)
+
+    # ============================================================
+    # LLM Client 初始化
+    # ============================================================
 
     def _init_llm_client(self):
         try:
@@ -150,6 +111,10 @@ class LLMNode:
             rospy.logerr("[LLM-Node] LLM Client 延迟初始化失败: %s", e)
             return False
 
+    # ============================================================
+    # 请求处理
+    # ============================================================
+
     def _on_request(self, msg):
         try:
             payload = json.loads(msg.data)
@@ -158,23 +123,27 @@ class LLMNode:
             return
 
         req_id = payload.get("request_id", "unknown")
-        task = payload.get("task", "")
-        text = payload.get("text", "")
-        context = payload.get("context", {})
+        messages = payload.get("messages")
+        temperature = payload.get("temperature", self._default_temperature)
+        max_tokens = payload.get("max_tokens", self._default_max_tokens)
 
-        if task not in TASK_PROMPTS:
-            self._publish_error(req_id, f"未知任务类型: {task}")
+        if not messages or not isinstance(messages, list):
+            self._publish_error(req_id, "缺少 messages 字段或格式错误 (需要 list of {role, content})")
             return
 
-        if not text.strip():
-            self._publish_error(req_id, "空文本输入")
-            return
+        for m in messages:
+            if not isinstance(m, dict) or "role" not in m or "content" not in m:
+                self._publish_error(req_id, "messages 中每项必须包含 role 和 content 字段")
+                return
 
-        t = threading.Thread(target=self._process_request, args=(req_id, task, text, context))
+        t = threading.Thread(
+            target=self._process_request,
+            args=(req_id, messages, temperature, max_tokens),
+        )
         t.daemon = True
         t.start()
 
-    def _process_request(self, req_id: str, task: str, text: str, context: dict):
+    def _process_request(self, req_id: str, messages: list, temperature: float, max_tokens: int):
         acquired = self._semaphore.acquire(timeout=60.0)
         if not acquired:
             self._publish_error(req_id, "并发请求超限, 请稍后重试")
@@ -185,21 +154,21 @@ class LLMNode:
                 self._publish_error(req_id, "LLM Client 不可用")
                 return
 
-            prompt = TASK_PROMPTS[task]
-            role = context.get("role", "guest")
-            rospy.loginfo("[LLM-Node] 处理请求 %s: task=%s, role=%s, text=\"%s\"",
-                          req_id[:8], task, role, text[:80])
+            user_preview = ""
+            for m in messages:
+                if m["role"] == "user":
+                    user_preview = m["content"][:80]
+                    break
 
-            messages = [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": text},
-            ]
+            rospy.loginfo("[LLM-Node] 处理请求 %s: messages=%d, temperature=%.2f, max_tokens=%d, user=\"%s\"",
+                          req_id[:8], len(messages), temperature, max_tokens, user_preview)
 
-            response_text = self._llm_client.chat(messages, temperature=0.1, max_tokens=128)
+            response_text = self._llm_client.chat(
+                messages, temperature=temperature, max_tokens=max_tokens
+            )
             rospy.loginfo("[LLM-Node] LLM 原始输出: %s", response_text[:200])
 
-            result = self._parse_llm_response(response_text, task)
-            self._publish_success(req_id, result)
+            self._publish_success(req_id, response_text)
 
         except Exception as e:
             rospy.logerr("[LLM-Node] 处理请求 %s 异常: %s", req_id[:8], e)
@@ -207,60 +176,15 @@ class LLMNode:
         finally:
             self._semaphore.release()
 
-    def _parse_llm_response(self, response_text: str, task: str) -> dict:
-        result = {}
-        try:
-            parsed = self._extract_json(response_text)
-        except json.JSONDecodeError:
-            rospy.logwarn("[LLM-Node] 无法解析 LLM 输出为 JSON: %s", response_text[:200])
-            return result
+    # ============================================================
+    # 发布
+    # ============================================================
 
-        if task == "extract_guest_info":
-            result = {
-                "name": parsed.get("name"),
-                "drink": parsed.get("drink"),
-            }
-        elif task == "extract_name":
-            result = {"name": parsed.get("name")}
-        elif task == "extract_drink":
-            result = {"drink": parsed.get("drink")}
-
-        for key in result:
-            if result[key] is not None:
-                result[key] = str(result[key])
-
-        return result
-
-    def _extract_json(self, text: str) -> dict:
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        if "```json" in text:
-            start = text.find("```json") + 7
-            end = text.find("```", start)
-            if end > start:
-                return json.loads(text[start:end].strip())
-
-        if "```" in text:
-            start = text.find("```") + 3
-            end = text.find("```", start)
-            if end > start:
-                return json.loads(text[start:end].strip())
-
-        import re
-        brace_match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
-        if brace_match:
-            return json.loads(brace_match.group())
-
-        raise json.JSONDecodeError("无法从文本中提取 JSON", text, 0)
-
-    def _publish_success(self, req_id: str, result: dict):
+    def _publish_success(self, req_id: str, text: str):
         response = {
             "request_id": req_id,
             "status": "success",
-            "result": result,
+            "text": text,
             "error": None,
         }
         self._pub_response.publish(String(data=json.dumps(response, ensure_ascii=False)))
@@ -269,10 +193,14 @@ class LLMNode:
         response = {
             "request_id": req_id,
             "status": "error",
-            "result": None,
+            "text": None,
             "error": error_msg,
         }
         self._pub_response.publish(String(data=json.dumps(response, ensure_ascii=False)))
+
+    # ============================================================
+    # 主循环
+    # ============================================================
 
     def run(self):
         rospy.spin()

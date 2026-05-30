@@ -324,9 +324,9 @@ class NavigationModule(BaseSubModule):
         result = self._navigate(NAV_CMD_GO_TO_DOOR)
         if result.get("status") == "success":
             print("  🚪 [Nav] 已到达门口")
-            return {"robot_at_door": True}
+            return {"robot_at_door": True, "robot_position": "door"}
         print(f"  🚪 [Nav] 导航失败: {result.get('error', 'unknown')}")
-        return {"robot_at_door": False}
+        return {"robot_at_door": False, "robot_position": "door"}
 
     def _guide_guest1(self, context: Dict[str, Any]) -> Dict[str, Any]:
         guest = context.get("guest1_name", "guest1")
@@ -334,31 +334,35 @@ class NavigationModule(BaseSubModule):
         result = self._navigate(NAV_CMD_GO_TO_LIVING_ROOM)
         if result.get("status") == "success":
             print(f"  🚶 [Nav] 已带 {guest} 到达客厅")
-            return {"guest1_in_living_room": True}
-        return {"guest1_in_living_room": False}
+            return {"guest1_in_living_room": True, "robot_position": "living_room"}
+        return {"guest1_in_living_room": False, "robot_position": "living_room"}
 
     def _return_to_start(self, context: Dict[str, Any]) -> Dict[str, Any]:
         print("  🚶 [Nav] 返回起点...")
         result = self._navigate(NAV_CMD_GO_TO_START)
         if result.get("status") == "success":
             print("  🚶 [Nav] 已返回起点")
-            return {"robot_at_start": True}
-        return {"robot_at_start": False}
+            return {"robot_at_start": True, "robot_position": "home"}
+        return {"robot_at_start": False, "robot_position": "home"}
 
-    def _pick_up_guest2(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _pick_up_guest2(self, context: Dict[str, Any]) -> Dict[str, Any]:
         print("  🚪 [Nav] 导航到门口接 guest2...")
         result = self._navigate(NAV_CMD_GO_TO_DOOR)
         if result.get("status") == "success":
             print("  🚪 [Nav] 已到达门口")
-        return None
+            return {"guest2_at_door": True, "robot_position": "door"}
+        print("  🚪 [Nav] 导航失败, 使用模拟位置")
+        return {"guest2_at_door": True, "robot_position": "door"}
 
-    def _seat_guest2(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _seat_guest2(self, context: Dict[str, Any]) -> Dict[str, Any]:
         guest = context.get("guest2_name", "guest2")
         print(f"  🚶 [Nav] 带 {guest} 去客厅...")
         result = self._navigate(NAV_CMD_GO_TO_LIVING_ROOM)
         if result.get("status") == "success":
             print(f"  🚶 [Nav] 已带 {guest} 到达客厅")
-        return None
+            return {"guest2_seated": True, "robot_position": "living_room"}
+        print(f"  🚶 [Nav] 导航失败, 使用模拟位置")
+        return {"guest2_seated": True, "robot_position": "living_room"}
 
     def _follow_host(self, context: Dict[str, Any]) -> Dict[str, Any]:
         print("  🚶 [Nav] 跟随 host...")
@@ -366,8 +370,8 @@ class NavigationModule(BaseSubModule):
         if result.get("status") == "success":
             dest = result.get("data", {}).get("destination", "storage_room")
             print(f"  🚶 [Nav] 已跟随 host 到达: {dest}")
-            return {"at_destination": True, "destination": dest}
-        return {"at_destination": False}
+            return {"nav_at_destination": True, "destination": dest, "robot_position": dest}
+        return {"nav_at_destination": False}
 
 
 # ============================================================
@@ -395,8 +399,8 @@ class SpeechModule(BaseSubModule):
         self._sp = speech
 
         if llm is None:
-            from task1_receptionist.sub_modules.llm_interface import MockLLMInterface
-            llm = MockLLMInterface()
+            from task1_receptionist.sub_modules.llm_interface import LocalLLMInterface
+            llm = LocalLLMInterface()
         self._llm = llm
 
         self._pub_enroll = None
@@ -424,30 +428,30 @@ class SpeechModule(BaseSubModule):
         self._enroll_speaker("guest1", "guest1", duration=5.0)
         raw_name = self._sp.ask("Welcome! May I have your name please?", timeout_sec=60.0)
 
-        print(f"  💬 [Speech] 示例: 客人应该说 'Orange juice please' 或 'I would like some cola'")
-        guest_label = raw_name or "Guest"
-        raw_drink = self._sp.ask(f"{guest_label}, what would you like to drink?", timeout_sec=60.0)
-
         name = "Guest"
-        drink = "water"
-
         try:
-            combined_text = f"{raw_name or ''}. {raw_drink or ''}".strip()
-            if combined_text:
-                info = self._llm.extract_guest_info(combined_text, role="guest1")
-                if info.get("name"):
-                    name = info["name"]
-                if info.get("drink"):
-                    drink = info["drink"]
-        except Exception as e:
-            print(f"  ⚠ [Speech] LLM 提取失败, 使用原始文本: {e}")
             if raw_name:
-                name = raw_name
-            if raw_drink:
-                drink = raw_drink
+                extracted = self._llm.extract_name(raw_name, role="guest1")
+                if extracted:
+                    name = extracted
+        except Exception as e:
+            print(f"  ⚠ [Speech] LLM 提取姓名失败: {e}")
 
         if name == "Guest" and raw_name:
             name = raw_name
+
+        print(f"  💬 [Speech] 示例: 客人应该说 'Orange juice please' 或 'I would like some cola'")
+        raw_drink = self._sp.ask(f"{name}, what would you like to drink?", timeout_sec=60.0)
+
+        drink = "water"
+        try:
+            if raw_drink:
+                extracted = self._llm.extract_drink(raw_drink, role="guest1")
+                if extracted:
+                    drink = extracted
+        except Exception as e:
+            print(f"  ⚠ [Speech] LLM 提取饮品失败: {e}")
+
         if drink == "water" and raw_drink:
             drink = raw_drink
 
@@ -456,8 +460,7 @@ class SpeechModule(BaseSubModule):
     def _pick_up_guest2(self, context: Dict[str, Any]) -> Dict[str, Any]:
         print("  💬 [Speech] 示例: 客人应该说 'My name is Bob' 或 'I am Bob'")
         self._enroll_speaker("guest2", "guest2", duration=5.0)
-        self._sp.say("Welcome! May I have your name please?")
-        raw_name = self._sp.listen(timeout_sec=60.0)
+        raw_name = self._sp.ask("Welcome! May I have your name please?", timeout_sec=60.0)
 
         name = "Guest2"
         try:
@@ -515,7 +518,7 @@ class SpeechModule(BaseSubModule):
         g1d = context.get("guest1_drink", "?")
         g2 = context.get("guest2_name", "guest2")
         g2d = context.get("guest2_drink", "?")
-        self._sp.say(f"{g1}, this is {g2}. He likes {g2d}. {g2}, this is {g1}. She likes {g1d}.")
+        self._sp.say(f"{g1}, this is {g2}, who would like {g2d}. {g2}, this is {g1}, who would like {g1d}.")
         return {"guests_introduced": True}
 
     def _request_guest2_bag(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -899,15 +902,15 @@ class SpeakerDOAModule(BaseSubModule):
         if result is None:
             print("  🎙️ [SpeakerDOA] ⚠️ ROS 不可用, 模拟跟随")
             time.sleep(5)
-            return {"at_destination": True, "destination": "storage_room"}
+            return {"doa_at_destination": True, "destination": "storage_room"}
 
         if result.get("status") == "success":
             data = result.get("data", {})
             dest = data.get("destination", "storage_room")
             print(f"  🎙️ [SpeakerDOA] 跟随完成, 到达: {dest}")
-            return {"at_destination": True, "destination": dest}
+            return {"doa_at_destination": True, "destination": dest}
 
-        return {"at_destination": False}
+        return {"doa_at_destination": False}
 
 
 # ============================================================

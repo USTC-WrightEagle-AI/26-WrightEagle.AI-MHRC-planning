@@ -1,0 +1,16 @@
+<launch>
+    <!-- CADE Ordering Sub-FSM with ROS1 communication -->
+    <!-- TTS is handled by cade-voice-core's local TTSEngine (not tts_node) -->
+
+    <!-- Audio capture -->
+    <node pkg="asr_tts" type="audio_capture_node.py" name="audio_capture" output="screen" />
+
+    <!-- ASR node — publishes recognized text to /asr -->
+    <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen" />
+
+    <!-- CADE ordering FSM (ROS transport mode) -->
+    <!-- Uses local TTSEngine for audio output, ROS topics for control -->
+    <node pkg="asr_tts" type="cade-order-voice-ros" name="cade_order_fsm" output="screen">
+        <param name="~order_input_mode" value="both" />
+    </node>
+</launch>

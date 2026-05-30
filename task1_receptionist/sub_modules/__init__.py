@@ -19,7 +19,7 @@ from task1_receptionist.sub_modules.speech_interaction import (
 )
 from task1_receptionist.sub_modules.llm_interface import (
     LLMInterface,
-    MockLLMInterface,
+    LocalLLMInterface,
     ROSLLMInterface,
     create_llm_interface,
 )
@@ -44,7 +44,7 @@ __all__ = [
     "create_speech_interface",
     # LLM 信息提取接口
     "LLMInterface",
-    "MockLLMInterface",
+    "LocalLLMInterface",
     "ROSLLMInterface",
     "create_llm_interface",
     # 话题常量

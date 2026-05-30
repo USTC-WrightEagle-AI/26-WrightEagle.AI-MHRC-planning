@@ -2,49 +2,57 @@
 LLM 接口 — LLMInterface
 
 封装 LLM 信息提取能力, 提供两套后端:
-  - MockLLMInterface      纯 Python, 无 ROS 依赖, 用于离线开发测试
-  - ROSLLMInterface       通过 /llm/request + /llm/response 话题与 LLM ROS 节点通信
+  - LocalLLMInterface   直接调用 brain.llm_client, 无需 ROS, 使用大模型做语义理解
+  - ROSLLMInterface     通过 /llm/request + /llm/response 话题与通用 LLM ROS 节点通信
 
-ROS 话题协议:
+ROS 话题协议 (通用, 与 llm_node.py 对接):
   请求话题: /llm/request   (std_msgs/String, JSON)
   响应话题: /llm/response  (std_msgs/String, JSON)
 
 请求格式:
   {
     "request_id": "uuid",
-    "task": "extract_guest_info" | "extract_name" | "extract_drink",
-    "text": "My name is Alice and I'd like some orange juice",
-    "context": {"role": "guest1"}
+    "messages": [
+      {"role": "system", "content": "You are an information extraction assistant..."},
+      {"role": "user", "content": "My name is Alice and I'd like some orange juice"}
+    ],
+    "temperature": 0.1,
+    "max_tokens": 512
   }
 
 响应格式:
   {
     "request_id": "uuid",
     "status": "success" | "error",
-    "result": {"name": "Alice", "drink": "orange juice"},
+    "text": "raw LLM output string",
     "error": null
   }
 
 典型用法:
 
-    llm = ROSLLMInterface()
+    llm = LocalLLMInterface()
     info = llm.extract_guest_info("My name is Alice, I'd like orange juice", role="guest1")
     print(info)  # {"name": "Alice", "drink": "orange juice"}
 """
 
 import json
 import queue
+import re
 import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from task1_receptionist.sub_modules.topic_names import (
     LLM_REQUEST_TOPIC,
     LLM_RESPONSE_TOPIC,
 )
 
+
+# ============================================================
+# Prompt 定义 (由调用方管理)
+# ============================================================
 
 EXTRACT_GUEST_INFO_PROMPT = (
     "You are an information extraction assistant for a robot receptionist. "
@@ -96,6 +104,57 @@ EXTRACT_DRINK_PROMPT = (
 )
 
 
+# ============================================================
+# JSON 提取工具
+# ============================================================
+
+def extract_json_from_text(text: str) -> dict:
+    """
+    从 LLM 原始输出中提取 JSON 对象。
+
+    按优先级尝试:
+      1. 直接 json.loads
+      2. ```json ... ``` 代码块
+      3. ``` ... ``` 代码块
+      4. 正则匹配第一个 {...}
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    if "```json" in text:
+        start = text.find("```json") + 7
+        end = text.find("```", start)
+        if end > start:
+            try:
+                return json.loads(text[start:end].strip())
+            except json.JSONDecodeError:
+                pass
+
+    if "```" in text:
+        start = text.find("```") + 3
+        end = text.find("```", start)
+        if end > start:
+            try:
+                return json.loads(text[start:end].strip())
+            except json.JSONDecodeError:
+                pass
+
+    brace_match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
+    if brace_match:
+        try:
+            return json.loads(brace_match.group())
+        except json.JSONDecodeError:
+            pass
+
+    return {}
+
+
+# ============================================================
+# 抽象接口
+# ============================================================
+
 class LLMInterface(ABC):
     """LLM 信息提取抽象接口"""
 
@@ -145,82 +204,128 @@ class LLMInterface(ABC):
         pass
 
 
-class MockLLMInterface(LLMInterface):
-    """
-    离线开发 / 测试用后端
+# ============================================================
+# 本地 LLM 后端 (直接调用 OpenAI 兼容接口, 无需 ROS)
+# ============================================================
 
-    使用简单的正则/规则匹配模拟 LLM 信息提取, 无需真实 LLM 服务。
+class LocalLLMInterface(LLMInterface):
+    """
+    本地 LLM 后端
+
+    直接调用 OpenAI 兼容接口, 无需 ROS 和 llm_node。
+    使用大模型做语义理解, 能处理 ASR 识别错误和各种自然表达。
+    内置 qwen3 思考模式兼容: 当 content 为空时自动从 reasoning 提取答案。
+
+    需要 Ollama 或云端 API 服务可用。
     """
 
     def __init__(self):
-        self._name_patterns = [
-            "my name is ", "i am ", "i'm ", "call me ", "this is ",
-        ]
-        self._drink_patterns = [
-            "i'd like ", "i would like ", "can i have ", "i want ",
-            "give me ", "please give me ", "i'll have ", "could i get ",
-        ]
+        from config import Config
+        import httpx
+        from openai import OpenAI
+
+        llm_config = Config.get_llm_config()
+        self._model = llm_config["model"]
+        self._is_qwen3 = "qwen3" in self._model.lower()
+        self._openai_client = OpenAI(
+            base_url=llm_config["base_url"],
+            api_key=llm_config["api_key"],
+            timeout=120,
+            http_client=httpx.Client(trust_env=False),
+        )
+        print("  🧠 [LLM-Local] 本地 LLM 后端就绪")
+
+    def _call_llm(self, messages: List[Dict[str, str]],
+                  temperature: float = 0.1,
+                  max_tokens: int = 1024) -> str:
+        msgs = [dict(m) for m in messages]
+        if self._is_qwen3:
+            if msgs and msgs[-1].get("role") == "user":
+                msgs.append({
+                    "role": "assistant",
+                    "content": "<think/>\n\n</think\n\n"
+                })
+
+        response = self._openai_client.chat.completions.create(
+            model=self._model,
+            messages=msgs,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        message = response.choices[0].message
+        content = message.content or ""
+
+        if not content and hasattr(message, "reasoning") and message.reasoning:
+            content = self._extract_from_reasoning(message.reasoning)
+
+        return content
+
+    @staticmethod
+    def _extract_from_reasoning(reasoning: str) -> str:
+        json_match = re.search(r'\{[^{}]*\}', reasoning)
+        if json_match:
+            return json_match.group(0)
+        return ""
 
     def extract_guest_info(self, text: str, role: str = "guest") -> Dict[str, Any]:
-        text_lower = text.lower().strip()
-        name = self._extract_name_impl(text_lower)
-        drink = self._extract_drink_impl(text_lower)
-        print(f"  🧠 [LLM-Mock] 提取 {role} 信息: name={name}, drink={drink} (from: \"{text}\")")
-        return {"name": name, "drink": drink}
+        messages = [
+            {"role": "system", "content": EXTRACT_GUEST_INFO_PROMPT},
+            {"role": "user", "content": text},
+        ]
+        raw = self._call_llm(messages)
+        parsed = extract_json_from_text(raw)
+        result = {
+            "name": parsed.get("name"),
+            "drink": parsed.get("drink"),
+        }
+        for key in result:
+            if result[key] is not None:
+                result[key] = str(result[key])
+        print(f"  🧠 [LLM-Local] 提取 {role} 信息: {result} (from: \"{text}\")")
+        return result
 
     def extract_name(self, text: str, role: str = "guest") -> Optional[str]:
-        text_lower = text.lower().strip()
-        name = self._extract_name_impl(text_lower)
-        print(f"  🧠 [LLM-Mock] 提取 {role} 姓名: {name} (from: \"{text}\")")
+        messages = [
+            {"role": "system", "content": EXTRACT_NAME_PROMPT},
+            {"role": "user", "content": text},
+        ]
+        raw = self._call_llm(messages)
+        parsed = extract_json_from_text(raw)
+        name = parsed.get("name")
+        if name is not None:
+            name = str(name)
+        print(f"  🧠 [LLM-Local] 提取 {role} 姓名: {name} (from: \"{text}\")")
         return name
 
     def extract_drink(self, text: str, role: str = "guest") -> Optional[str]:
-        text_lower = text.lower().strip()
-        drink = self._extract_drink_impl(text_lower)
-        print(f"  🧠 [LLM-Mock] 提取 {role} 饮品: {drink} (from: \"{text}\")")
+        messages = [
+            {"role": "system", "content": EXTRACT_DRINK_PROMPT},
+            {"role": "user", "content": text},
+        ]
+        raw = self._call_llm(messages)
+        parsed = extract_json_from_text(raw)
+        drink = parsed.get("drink")
+        if drink is not None:
+            drink = str(drink)
+        print(f"  🧠 [LLM-Local] 提取 {role} 饮品: {drink} (from: \"{text}\")")
         return drink
 
-    def _extract_name_impl(self, text_lower: str) -> Optional[str]:
-        for pattern in self._name_patterns:
-            idx = text_lower.find(pattern)
-            if idx >= 0:
-                rest = text_lower[idx + len(pattern):].strip()
-                for sep in [",", ".", " and ", " but ", " so "]:
-                    if sep in rest:
-                        rest = rest[:rest.find(sep)].strip()
-                if rest:
-                    return rest.capitalize()
-        return None
+    def close(self):
+        pass
 
-    def _extract_drink_impl(self, text_lower: str) -> Optional[str]:
-        for pattern in self._drink_patterns:
-            idx = text_lower.find(pattern)
-            if idx >= 0:
-                rest = text_lower[idx + len(pattern):].strip()
-                for sep in [",", ".", " and ", " but ", " so "]:
-                    if sep in rest:
-                        rest = rest[:rest.find(sep)].strip()
-                if rest:
-                    if rest.endswith(" please"):
-                        rest = rest[:-7].strip()
-                    for prefix in ["some ", "a ", "the "]:
-                        if rest.startswith(prefix):
-                            rest = rest[len(prefix):]
-                    return rest
-        if "please" in text_lower:
-            idx = text_lower.find("please")
-            before = text_lower[:idx].strip()
-            words = before.split()
-            if words:
-                return words[-1].rstrip(".,")
-        return None
 
+# ============================================================
+# ROS 后端
+# ============================================================
 
 class ROSLLMInterface(LLMInterface):
     """
     ROS LLM 后端
 
-    通过 /llm/request + /llm/response 话题与 LLM ROS 节点通信。
+    通过 /llm/request + /llm/response 话题与通用 LLM ROS 节点通信。
+    Prompt 构造和输出解析由本类负责, llm_node 只做纯代理转发。
+
     需要启动 llm_node (asr_tts/scripts/llm_node.py)。
 
     请求/响应使用 request_id 匹配, 支持并发调用。
@@ -265,13 +370,30 @@ class ROSLLMInterface(LLMInterface):
         except (json.JSONDecodeError, Exception):
             pass
 
-    def _call_llm(self, task: str, text: str, context: Optional[Dict] = None) -> Dict[str, Any]:
+    def _call_llm(self, messages: List[Dict[str, str]],
+                  temperature: float = 0.1,
+                  max_tokens: int = 512) -> str:
+        """
+        发送 messages 到 LLM 节点, 返回原始文本输出。
+
+        Args:
+            messages: OpenAI 格式的消息列表
+            temperature: 采样温度
+            max_tokens: 最大输出 token 数
+
+        Returns:
+            LLM 原始文本输出
+
+        Raises:
+            RuntimeError: LLM 返回错误
+            TimeoutError: 请求超时
+        """
         req_id = str(uuid.uuid4())
         payload = {
             "request_id": req_id,
-            "task": task,
-            "text": text,
-            "context": context or {},
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
         }
 
         q = queue.Queue()
@@ -284,27 +406,57 @@ class ROSLLMInterface(LLMInterface):
             result = q.get(timeout=self._timeout)
             if result.get("status") == "error":
                 raise RuntimeError(f"LLM 返回错误: {result.get('error', 'unknown')}")
-            return result.get("result", {})
+            return result.get("text", "")
         except queue.Empty:
-            raise TimeoutError(f"LLM 请求超时 ({self._timeout}s), task={task}")
+            raise TimeoutError(f"LLM 请求超时 ({self._timeout}s)")
         finally:
             with self._lock:
                 self._pending.pop(req_id, None)
 
+    # ============================================================
+    # 业务方法 (Prompt 构造 + 输出解析)
+    # ============================================================
+
     def extract_guest_info(self, text: str, role: str = "guest") -> Dict[str, Any]:
-        result = self._call_llm("extract_guest_info", text, {"role": role})
+        messages = [
+            {"role": "system", "content": EXTRACT_GUEST_INFO_PROMPT},
+            {"role": "user", "content": text},
+        ]
+        raw = self._call_llm(messages)
+        parsed = extract_json_from_text(raw)
+        result = {
+            "name": parsed.get("name"),
+            "drink": parsed.get("drink"),
+        }
+        for key in result:
+            if result[key] is not None:
+                result[key] = str(result[key])
         print(f"  🧠 [LLM-ROS] 提取 {role} 信息: {result} (from: \"{text}\")")
         return result
 
     def extract_name(self, text: str, role: str = "guest") -> Optional[str]:
-        result = self._call_llm("extract_name", text, {"role": role})
-        name = result.get("name")
+        messages = [
+            {"role": "system", "content": EXTRACT_NAME_PROMPT},
+            {"role": "user", "content": text},
+        ]
+        raw = self._call_llm(messages)
+        parsed = extract_json_from_text(raw)
+        name = parsed.get("name")
+        if name is not None:
+            name = str(name)
         print(f"  🧠 [LLM-ROS] 提取 {role} 姓名: {name} (from: \"{text}\")")
         return name
 
     def extract_drink(self, text: str, role: str = "guest") -> Optional[str]:
-        result = self._call_llm("extract_drink", text, {"role": role})
-        drink = result.get("drink")
+        messages = [
+            {"role": "system", "content": EXTRACT_DRINK_PROMPT},
+            {"role": "user", "content": text},
+        ]
+        raw = self._call_llm(messages)
+        parsed = extract_json_from_text(raw)
+        drink = parsed.get("drink")
+        if drink is not None:
+            drink = str(drink)
         print(f"  🧠 [LLM-ROS] 提取 {role} 饮品: {drink} (from: \"{text}\")")
         return drink
 
@@ -313,8 +465,17 @@ class ROSLLMInterface(LLMInterface):
             self._sub_response.unregister()
 
 
+# ============================================================
+# 工厂函数
+# ============================================================
+
 def create_llm_interface(use_ros: bool = False, **kwargs) -> LLMInterface:
-    """根据参数创建合适的 LLM 接口"""
+    """根据参数创建合适的 LLM 接口
+
+    Args:
+        use_ros: True 使用 ROS 话题与 llm_node 通信,
+                 False 直接调用本地 brain.llm_client
+    """
     if use_ros:
         return ROSLLMInterface(**kwargs)
-    return MockLLMInterface(**kwargs)
+    return LocalLLMInterface(**kwargs)

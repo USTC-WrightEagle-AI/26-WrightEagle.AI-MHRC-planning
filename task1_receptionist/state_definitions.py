@@ -124,7 +124,7 @@ class StateDefinition:
     next_state: Optional[Task1StateID]
     data_needed: List[str] = field(default_factory=list)
     data_produced: List[str] = field(default_factory=list)
-    timeout_sec: float = 120.0
+    timeout_sec: float = 30.0
     retry_on_failure: int = 0
 
 
@@ -148,7 +148,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="等待门铃声 (guest1 到达门口)",
         next_state=Task1StateID.GO_TO_DOOR,
         data_produced=["doorbell_1_rang"],
-        timeout_sec=300.0,
+        timeout_sec=30.0,
     ),
 
     # ── [2] 去门口 ──
@@ -158,7 +158,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="机器人移动到门口接客位置",
         next_state=Task1StateID.ASK_GUEST1_INFO,
         data_produced=["robot_at_door"],
-        timeout_sec=90.0,
+        timeout_sec=30.0,
     ),
 
     # ── [3] 询问 guest1 ──
@@ -168,7 +168,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="询问第一位客人的姓名和想喝的饮料",
         next_state=Task1StateID.GUIDE_GUEST1,
         data_produced=["guest1_name", "guest1_drink"],
-        timeout_sec=180.0,
+        timeout_sec=30.0,
         retry_on_failure=2,
     ),
 
@@ -179,7 +179,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="带领 guest1 前往客厅",
         next_state=Task1StateID.POINT_EMPTY_SEAT,
         data_needed=["guest1_name"],
-        timeout_sec=120.0,
+        timeout_sec=30.0,
     ),
 
     # ── [5] 指向空座 ──
@@ -189,7 +189,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="指向预设空座位，请 guest1 入座",
         next_state=Task1StateID.RETURN_TO_START,
         data_needed=["guest1_name"],
-        timeout_sec=60.0,
+        timeout_sec=30.0,
     ),
 
     # ── [6] 返回起点 ──
@@ -198,7 +198,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         index=6,
         description="返回起点位置，准备接第二位客人",
         next_state=Task1StateID.WAIT_FOR_DOORBELL_2,
-        timeout_sec=90.0,
+        timeout_sec=30.0,
     ),
 
     # ── [7] 等待门铃 2 ──
@@ -208,7 +208,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="等待门铃声 (guest2 到达门口)",
         next_state=Task1StateID.PICK_UP_GUEST2,
         data_produced=["doorbell_2_rang"],
-        timeout_sec=300.0,
+        timeout_sec=30.0,
     ),
 
     # ── [8] 接 guest2 ──
@@ -218,7 +218,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="到门口迎接第二位客人，询问姓名",
         next_state=Task1StateID.DESCRIBE_GUEST1,
         data_produced=["guest2_at_door", "guest2_name"],
-        timeout_sec=120.0,
+        timeout_sec=30.0,
     ),
 
     # ── [9] 描述 guest1 ──
@@ -228,7 +228,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="向 guest2 描述 guest1 的外貌特征（衣服颜色、位置等）",
         next_state=Task1StateID.SEAT_GUEST2,
         data_needed=["guest1_name"],
-        timeout_sec=90.0,
+        timeout_sec=30.0,
     ),
 
     # ── [10] 带 guest2 入座 ──
@@ -239,7 +239,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         next_state=Task1StateID.INTRODUCE_GUESTS,
         data_needed=["guest2_name"],
         data_produced=["guest2_seated", "guest2_drink", "seat_number"],
-        timeout_sec=120.0,
+        timeout_sec=30.0,
     ),
 
     # ── [11] 介绍两位客人 ──
@@ -249,7 +249,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="向两位客人相互介绍彼此的姓名和饮料偏好",
         next_state=Task1StateID.REQUEST_GUEST2_BAG,
         data_needed=["guest1_name", "guest1_drink", "guest2_name", "guest2_drink"],
-        timeout_sec=90.0,
+        timeout_sec=30.0,
     ),
 
     # ── [12] 请求 guest2 放包 ──
@@ -260,7 +260,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         next_state=Task1StateID.FIND_HOST,
         data_needed=["guest2_name"],
         data_produced=["bag_on_tray"],
-        timeout_sec=120.0,
+        timeout_sec=30.0,
         retry_on_failure=1,
     ),
 
@@ -271,7 +271,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="在环境中寻找 host",
         next_state=Task1StateID.FOLLOW_HOST,
         data_produced=["host_found", "host_location"],
-        timeout_sec=180.0,
+        timeout_sec=30.0,
         retry_on_failure=2,
     ),
 
@@ -282,7 +282,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="跟随 host 走到指定位置",
         next_state=Task1StateID.PLACE_BAG,
         data_needed=["host_found"],
-        timeout_sec=120.0,
+        timeout_sec=30.0,
     ),
 
     # ── [15] 放包 ──
@@ -293,7 +293,7 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         next_state=Task1StateID.TASK_COMPLETE,
         data_needed=["bag_on_tray"],
         data_produced=["bag_placed"],
-        timeout_sec=60.0,
+        timeout_sec=30.0,
     ),
 
     # ── [16] 完成 ──
