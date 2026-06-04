@@ -28,6 +28,11 @@ LEFT_ANKLE, RIGHT_ANKLE = 27, 28
 # ==================== 1. 2D 辅助与兜底模块 ====================
 
 
+def _get_pixel_2d(landmarks, idx, img_width, img_height):
+    """将归一化的比例坐标还原为真实的物理像素坐标"""
+    return np.array([landmarks[idx][0] * img_width, landmarks[idx][1] * img_height])
+
+
 def _is_visible_2d(landmarks, idx):
     """检查 2D Pose 点是否存在且可见性足够高。"""
     # 先检查长度，避免裁剪图中 Pose 输出异常或 landmark 数不足时越界。
@@ -40,24 +45,24 @@ def _get_2d_vec(landmarks, idx):
     return np.array([landmarks[idx][0], landmarks[idx][1]])
 
 
-def _leg_angle_2d(landmarks, hip_idx, knee_idx, ankle_idx):
+def _leg_angle_2d(landmarks, hip_idx, knee_idx, ankle_idx, img_width, img_height):
     """
     计算一条腿在 2D 投影里的两段夹角。
 
-    注意：这里返回的是 hip->knee 与 knee->ankle 两个投影向量的夹角，
+    注意：这里返回的是 knee->hip 与 knee->ankle 两个投影向量的夹角，
     不是严格的人体解剖学膝关节内角。后续阈值都是按这个定义调出来的，
     因此不要单独替换为另一种角度定义，否则 standing/sitting 的阈值也要重调。
     """
     if not all(_is_visible_2d(landmarks, i) for i in [hip_idx, knee_idx, ankle_idx]):
         return None
 
-    hip = _get_2d_vec(landmarks, hip_idx)
-    knee = _get_2d_vec(landmarks, knee_idx)
-    ankle = _get_2d_vec(landmarks, ankle_idx)
+    hip = _get_pixel_2d(landmarks, hip_idx, img_width, img_height)
+    knee = _get_pixel_2d(landmarks, knee_idx, img_width, img_height)
+    ankle = _get_pixel_2d(landmarks, ankle_idx, img_width, img_height)
 
     # v1 表示大腿投影方向，v2 表示小腿投影方向。
     # 任一段长度接近 0 时，夹角没有稳定几何意义，直接返回 None。
-    v1 = knee - hip
+    v1 = hip - knee
     v2 = ankle - knee
     n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
     if n1 < 1e-6 or n2 < 1e-6:
@@ -66,6 +71,65 @@ def _leg_angle_2d(landmarks, hip_idx, knee_idx, ankle_idx):
     # clip 是为了抵消浮点误差，避免 acos 收到 1.00000001 这类非法值。
     cos_a = np.dot(v1, v2) / (n1 * n2)
     return math.degrees(math.acos(np.clip(cos_a, -1.0, 1.0)))
+
+
+def _compute_body_angles_3d(keypoints_3d: dict, v_spine_global) -> dict:
+    """
+    【数据提取与计算函数】
+    计算 3D 空间下坐姿判定通道 A 所需的所有纯几何参数。
+    """
+    res = {
+        "lean_angle": None,
+        "left_joint_angle": None,
+        "left_thigh_ratio": None,
+        "right_joint_angle": None,
+        "right_thigh_ratio": None,
+    }
+
+    if v_spine_global is None:
+        return res
+
+    vsg_norm = np.linalg.norm(v_spine_global)
+    if vsg_norm < 1e-6:
+        return res
+
+    # 1. 计算脊柱偏离竖直轴的绝对倾斜角
+    cos_lean = abs(v_spine_global[1]) / vsg_norm
+    res["lean_angle"] = math.degrees(math.acos(np.clip(cos_lean, 0.0, 1.0)))
+
+    # 2. 左右侧单侧自适应空间向量解算
+    left_valid = all(keypoints_3d.get(i) is not None for i in (11, 23, 25))
+    right_valid = all(keypoints_3d.get(i) is not None for i in (12, 24, 26))
+
+    # 左侧解算
+    if left_valid:
+        # 统一以 髋关节(23) 为圆心发射
+        v_torso = np.array(keypoints_3d[11]) - np.array(keypoints_3d[23])  # 髋 -> 肩
+        v_thigh = np.array(keypoints_3d[25]) - np.array(keypoints_3d[23])  # 髋 -> 膝
+        vt_n, vth_n = np.linalg.norm(v_torso), np.linalg.norm(v_thigh)
+
+        if vt_n > 1e-6 and vth_n > 1e-6:
+            cos_joint = np.dot(v_torso, v_thigh) / (vt_n * vth_n)
+            res["left_joint_angle"] = math.degrees(
+                math.acos(np.clip(cos_joint, -1.0, 1.0))
+            )
+            res["left_thigh_ratio"] = abs(v_thigh[1]) / vth_n
+
+    # 右侧解算
+    if right_valid:
+        # 统一以 髋关节(24) 为圆心发射
+        v_torso = np.array(keypoints_3d[12]) - np.array(keypoints_3d[24])  # 跨 -> 肩
+        v_thigh = np.array(keypoints_3d[26]) - np.array(keypoints_3d[24])  # 跨 -> 膝
+        vt_n, vth_n = np.linalg.norm(v_torso), np.linalg.norm(v_thigh)
+
+        if vt_n > 1e-6 and vth_n > 1e-6:
+            cos_joint = np.dot(v_torso, v_thigh) / (vt_n * vth_n)
+            res["right_joint_angle"] = math.degrees(
+                math.acos(np.clip(cos_joint, -1.0, 1.0))
+            )
+            res["right_thigh_ratio"] = abs(v_thigh[1]) / vth_n
+
+    return res
 
 
 def _classify_posture_2d_fallback(landmarks):
@@ -157,7 +221,9 @@ def is_torso_vertical_3d(keypoints_3d: dict):
     return False, None
 
 
-def check_sitting_3d(landmarks, keypoints_3d: dict, v_spine_global) -> bool:
+def check_sitting_3d(
+    landmarks, keypoints_3d: dict, body_angles_3d: dict, img_width, img_height
+) -> bool:
     """
     【坐姿规则模块】直接修改此处的几何逻辑、阈值来调优 sitting 判定。
 
@@ -168,49 +234,23 @@ def check_sitting_3d(landmarks, keypoints_3d: dict, v_spine_global) -> bool:
     只要任一通道命中，就认为 sitting 成立。
     """
     # 通道 A：斜向大角度后靠校验
-    if v_spine_global is not None:
-        vsg_norm = np.linalg.norm(v_spine_global)
-        if vsg_norm > 1e-6:
-            # lean_angle 表示脊柱方向偏离竖直轴的程度；
-            # 小于 50 度时，说明躯干仍处在“坐/站”这类直立姿态的大范围内，
-            # 避免完全横躺的人进入 sitting 角度判断。
-            cos_lean = abs(v_spine_global[1]) / vsg_norm
-            lean_angle = math.degrees(math.acos(np.clip(cos_lean, 0.0, 1.0)))
+    lean_angle = body_angles_3d.get("lean_angle")
 
-            if lean_angle < 50:
-                # 单侧肩、髋、膝齐全即可构造 torso 与 thigh 两个 3D 向量。
-                # 左右都可用时都检查，任一侧出现稳定坐姿特征即可命中。
-                left_valid = all(keypoints_3d.get(i) is not None for i in (11, 23, 25))
-                right_valid = all(keypoints_3d.get(i) is not None for i in (12, 24, 26))
+    # 躯干必须处于大致直立的大范畴（未完全横躺，偏离垂直线 < 50°）
+    if lean_angle is not None and lean_angle < 50:
+        # 检查左侧是否命中坐姿刚性特征
+        if body_angles_3d["left_joint_angle"] is not None:
+            # 特征1：3D 真实躯干大腿夹角处于折叠区间 [60°, 125°]
+            # 特征2：大腿偏离垂直轴超过 50°（更趋近水平，即 ratio < cos(50°) ≈ 0.642）
+            if 60 <= body_angles_3d["left_joint_angle"] <= 125:
+                if body_angles_3d["left_thigh_ratio"] < 0.642:
+                    return True
 
-                angles_3d = []
-                if left_valid:
-                    angles_3d.append(
-                        (
-                            np.array(keypoints_3d[11]) - np.array(keypoints_3d[23]),
-                            np.array(keypoints_3d[25]) - np.array(keypoints_3d[23]),
-                        )
-                    )
-                if right_valid:
-                    angles_3d.append(
-                        (
-                            np.array(keypoints_3d[12]) - np.array(keypoints_3d[24]),
-                            np.array(keypoints_3d[26]) - np.array(keypoints_3d[24]),
-                        )
-                    )
-
-                for v_s, v_t in angles_3d:
-                    vs_n, vt_n = np.linalg.norm(v_s), np.linalg.norm(v_t)
-                    if vs_n > 1e-6 and vt_n > 1e-6:
-                        # cos_angle 越小，躯干和大腿越接近垂直。
-                        # 0.766 约等于 cos(40°)，意味着夹角至少要有明显张开。
-                        cos_angle = abs(np.dot(v_s, v_t)) / (vs_n * vt_n)
-                        if cos_angle < 0.766:
-                            # abs(v_t[1]) / vt_n 衡量大腿向量的竖直分量占比。
-                            # 小于 0.573 约等于偏离竖直超过 55°，说明大腿更接近水平，
-                            # 这是坐姿相对站立最关键的 3D 特征之一。
-                            if abs(v_t[1]) / vt_n < 0.573:
-                                return True
+        # 检查右侧是否命中坐姿刚性特征
+        if body_angles_3d["right_joint_angle"] is not None:
+            if 60 <= body_angles_3d["right_joint_angle"] <= 125:
+                if body_angles_3d["right_thigh_ratio"] < 0.642:
+                    return True
 
     # 通道 B：物理高度差与 2D 投影缩水校验
     def get_h3d(idx1, idx2):
@@ -245,10 +285,12 @@ def check_sitting_3d(landmarks, keypoints_3d: dict, v_spine_global) -> bool:
                     else (RIGHT_HIP, RIGHT_KNEE, RIGHT_SHOULDER)
                 )
                 torso_len_2d = np.linalg.norm(
-                    _get_2d_vec(landmarks, s_idx) - _get_2d_vec(landmarks, h_idx)
+                    _get_pixel_2d(landmarks, s_idx, img_width, img_height)
+                    - _get_pixel_2d(landmarks, h_idx, img_width, img_height)
                 )
                 thigh_len_2d = np.linalg.norm(
-                    _get_2d_vec(landmarks, k_idx) - _get_2d_vec(landmarks, h_idx)
+                    _get_pixel_2d(landmarks, k_idx, img_width, img_height)
+                    - _get_pixel_2d(landmarks, h_idx, img_width, img_height)
                 )
                 # thigh/torso < 0.45 是“投影缩水”条件：
                 # 站立时大腿投影往往不会这么短，坐着时髋膝高度接近会压缩该距离。
@@ -272,13 +314,14 @@ def check_standing_3d(
     """
     # 1. 2D 膝关节运动学前置校验
     valid_angles = [a for a in (left_angle, right_angle) if a is not None]
+    angles_str = "\n".join([str(a) for a in valid_angles])
     knee_ok = any(a >= 145 for a in valid_angles) if valid_angles else False
 
     if not torso_ok:
         return "torso_false"
     if not knee_ok:
         if valid_angles is not None:
-            return f"{','.join([str(a) for a in valid_angles])}"
+            return f"{angles_str}"
         else:
             return "valid_angles is none"
 
@@ -304,7 +347,8 @@ def check_standing_3d(
         # - thigh_drop > 0.18: 髋到膝有明显垂直落差，排除坐姿髋膝齐平；
         # - kn_y < an_y - 0.05: 膝点比踝点高至少 5cm，形成完整下肢高度链。
         if (sh_y < hi_y - 0.05) and (thigh_drop > 0.18) and (kn_y < an_y - 0.05):
-            return True
+            # return True
+            return "standing\n" + f"{angles_str}"
 
     # return False
     return "thigh_drop 硬编码太严格"
@@ -341,7 +385,7 @@ def check_lying_3d(keypoints_3d: dict) -> bool:
 # ==================== 3. 主入口决策树（平行排他分支） ====================
 
 
-def classify_posture_3d(landmarks, img_height, keypoints_3d: dict = None):
+def classify_posture_3d(landmarks, img_width, img_height, keypoints_3d: dict = None):
     """
     解耦后的高清晰度主函数入口，各姿态逻辑高度自平衡、互不干扰。
 
@@ -364,13 +408,23 @@ def classify_posture_3d(landmarks, img_height, keypoints_3d: dict = None):
     # torso_ok 用作 standing 的前置条件；v_spine_global 供 sitting 通道 A 复用。
     # 左右腿 2D 角度既用于 2D fallback，也作为 3D standing 的轻量运动学约束。
     torso_ok, v_spine_global = is_torso_vertical_3d(keypoints_3d)
-    left_angle = _leg_angle_2d(landmarks, LEFT_HIP, LEFT_KNEE, LEFT_ANKLE)
-    right_angle = _leg_angle_2d(landmarks, RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE)
+    left_leg_angle = _leg_angle_2d(
+        landmarks, LEFT_HIP, LEFT_KNEE, LEFT_ANKLE, img_width, img_height
+    )
+    right_leg_angle = _leg_angle_2d(
+        landmarks,
+        RIGHT_HIP,
+        RIGHT_KNEE,
+        RIGHT_ANKLE,
+        img_width,
+        img_height,
+    )
+    body_angles_3d = _compute_body_angles_3d(keypoints_3d, v_spine_global)
 
     # 3. 三大姿态独立规则处理器并行诊断（按优先级或排他逻辑拦截）
 
     # 优先级 A：坐姿拦截（双通道几何条件非常明确，不易误触）
-    if check_sitting_3d(landmarks, keypoints_3d, v_spine_global):
+    if check_sitting_3d(landmarks, keypoints_3d, body_angles_3d, img_width, img_height):
         return "sitting", 0.85
 
     # # 优先级 B：站立拦截（依赖高度链与直立刚性约束）
@@ -379,7 +433,10 @@ def classify_posture_3d(landmarks, img_height, keypoints_3d: dict = None):
     #     if check_lying_3d(keypoints_3d):
     #         return "lying", 0.85
     #     return "standing", 0.8
-    return check_standing_3d(keypoints_3d, torso_ok, left_angle, right_angle), 0.8
+    if check_standing_3d(keypoints_3d, torso_ok, left_leg_angle, right_leg_angle):
+        return check_standing_3d(
+            keypoints_3d, torso_ok, left_leg_angle, right_leg_angle
+        ), 0.8
 
     # 优先级 C：防漏跌倒/平躺拦截（未能通过严格站立和坐姿、但高度极度压缩的特殊状态兜底）
     if check_lying_3d(keypoints_3d):

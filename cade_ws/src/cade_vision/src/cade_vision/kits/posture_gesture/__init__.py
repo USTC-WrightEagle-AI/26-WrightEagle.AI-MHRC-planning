@@ -157,7 +157,7 @@ class PostureGestureAnalyzer:
         landmarks = pose_data["landmarks"]
         h, w = pose_data["img_h"], pose_data["img_w"]
 
-        posture, _ = classify_posture_3d(landmarks, h, keypoints_3d)
+        posture, _ = classify_posture_3d(landmarks, w, h, keypoints_3d)
         gesture, elbow_l, elbow_r, wrist_l, wrist_r = classify_static_gesture(
             landmarks, h, w, hands_data
         )
