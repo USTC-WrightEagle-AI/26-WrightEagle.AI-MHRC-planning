@@ -1,0 +1,19 @@
+cmake_minimum_required(VERSION 3.0.2)
+
+# Top-level catkin workspace CMakeLists
+# This file forwards to the catkin provided toplevel helper if available.
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/src/CMakeLists.txt")
+  # Standard catkin workspace layout: src/CMakeLists.txt exists
+  message(STATUS "Using workspace src/CMakeLists.txt")
+else()
+  message(STATUS "No src/CMakeLists.txt found in workspace; proceeding with default toplevel include")
+endif()
+
+# Try to include the catkin toplevel helper if present in anaconda/env or system
+if(EXISTS "/home/huyanshen/miniforge3/envs/CADE/share/catkin/cmake/toplevel.cmake")
+  include("/home/huyanshen/miniforge3/envs/CADE/share/catkin/cmake/toplevel.cmake")
+else()
+  find_package(catkin REQUIRED)
+  catkin_workspace()
+endif()

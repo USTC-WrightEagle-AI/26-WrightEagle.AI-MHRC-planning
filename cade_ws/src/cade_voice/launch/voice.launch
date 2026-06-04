@@ -1,0 +1,7 @@
+<launch>
+  <!-- CADE Voice Layer: ASR + TTS nodes -->
+  <node name="asr_node" pkg="cade_voice" type="asr_node.py" output="screen">
+    <param name="model_path" value="$(find cade_voice)/models/vosk-model-small-cn-0.22"/>
+  </node>
+  <node name="tts_node" pkg="cade_voice" type="tts_node.py" output="screen"/>
+</launch>

@@ -1,0 +1,192 @@
+.env.example
+环境变量模板，配置 CADE_MODE、云端/本地 LLM 地址与密钥、模型、温度等参数。
+.gitignore
+Git 忽略规则，排除临时文件、构建产物等。
+ARCHITECTURE.md
+项目架构文档，描述系统模块划分、Brain/Body/Bridge 层、ROS 话题流和设计原则。
+README.md
+项目总体说明、环境安装、ROS 工作空间编译、语音链路配置、启动方式和测试流程。
+requirements.txt
+Python 依赖列表，给整个项目或根环境使用。
+test_me.sh
+静默测试脚本，通过预录音文件注入虚拟音频 Sink，模拟语音指令验证 ASR/语音链路。
+gen_test_audio.py
+生成测试用的音频数据，用于静默测试脚本。
+setup_virtual_audio.sh
+配置虚拟音频接口（PulseAudio Sink/Source），支持本地静默音频注入测试。
+test_bus.py
+可能用于 bus 通信或 ROS topic 的集成测试脚本。
+test_bus_mediapipe.py
+可能用于 bus 与 Mediapipe 视觉模块交互的测试。
+test_video_waving.py
+视频挥手检测相关测试脚本。
+data
+测试数据目录，存放图像等测试资源。
+outputs
+测试输出目录，保存测试生成的图像/视频数据。
+docs 目录
+fix_bus_test_skeleton.md
+bus 测试骨架修复方案文档。
+fix_pointing_direction.md
+指向方向问题分析与修复说明。
+gpsr_person_features_analysis.md
+GPSR 任务中人员特征分析文档。
+req_01_posture_gesture.md
+姿态手势需求说明。
+req_02_tracking_filter.md
+跟踪过滤需求说明。
+req_03_clothing_detection.md
+服装检测需求说明。
+req_04_person_reid.md
+人员重识别需求说明。
+req_test_bus_mediapipe.md
+bus 与 Mediapipe 测试需求说明。
+cade_ws 目录
+README.md
+CADE ROS 工作空间的构建与运行指南，包含 Conda 环境、ROS 编译、.env 配置和语音测试流程。
+start_cade.sh
+启动脚本，支持一键启动 CADE 相关节点/子系统。
+cade_full.launch
+ROS launch 文件，启动完整系统所需节点。
+CMakeLists.txt
+ROS 工作空间顶层 CMake 配置。
+cade_ws/src/cade_brain
+CMakeLists.txt
+ROS 包构建配置。
+package.xml
+ROS 包元信息与依赖声明。
+setup.py
+Python 包安装元数据。
+scripts/brain_node.py
+Brain 模块入口脚本，启动脑部节点。
+src/cade_brain/__init__.py
+Python 包初始化文件。
+src/cade_brain/controller.py
+中央控制器，负责输入处理、LLM 决策与机器人动作调度。
+src/cade_brain/memory.py
+运行时记忆/世界模型模块，保存环境、物体或任务状态。
+src/cade_brain/robot_interface.py
+抽象机器人接口，定义通用机器人状态和执行方法。
+src/cade_brain/llm_core/config.py
+LLM 配置与环境变量读取逻辑。
+src/cade_brain/llm_core/llm_client.py
+封装云端/本地 LLM 调用的客户端逻辑。
+src/cade_brain/llm_core/prompts.py
+提示词模板与规则定义，构建系统指令与动作规范。
+src/cade_brain/llm_core/schemas.py
+Pydantic 数据模型，定义动作、决策输出等结构。
+src/cade_brain/llm_core/__init__.py
+LLM 核心模块初始化文件。
+src/cade_brain/skills/base_skill.py
+技能基类，定义技能接口与通用行为。
+src/cade_brain/skills/nav_skill.py
+导航技能实现，负责移动/定位类任务。
+src/cade_brain/skills/vision_skill.py
+视觉技能实现，负责视觉任务的处理与 ROS 交互。
+src/cade_brain/skills/__init__.py
+技能包初始化文件。
+cade_ws/src/cade_vision
+CMakeLists.txt
+ROS 包构建配置。
+package.xml
+ROS 包元信息与依赖声明。
+setup.py
+Python 包安装配置。
+TEST_GUIDE.md
+视觉包测试指南。
+scripts/open_vision_node.py
+视觉节点入口，负责目标检测/跟踪并发布 ROS 结果。
+src/cade_vision/__init__.py
+Python 包初始化文件。
+src/cade_vision/analyzer.py
+视觉分析工具，处理检测结果和视觉特征。
+src/cade_vision/cloth.py
+服装检测相关逻辑。
+src/cade_vision/posture_gesture.py
+姿态与手势识别实现。
+src/cade_vision/tracker.py
+跟踪算法与对象跟踪逻辑。
+cade_ws/src/cade_voice
+CMakeLists.txt
+ROS 包构建配置。
+package.xml
+ROS 包元信息与依赖声明。
+requirements.txt
+语音模块专用 Python 依赖。
+setup.py
+Python 包安装配置。
+launch/voice.launch
+ROS 启动文件，启动 ASR 与 TTS 节点。
+scripts/asr_node.py
+语音识别节点，处理麦克风音频并发布识别文本。
+scripts/dynamic_vad_asr_node.py
+带动态 VAD 的 ASR 节点变体。
+scripts/dynamic_vad_streaming_asr_node.py
+流式 ASR + 动态 VAD 节点。
+scripts/streaming_asr_endpoint_node.py
+端点式流式 ASR 节点。
+scripts/tts_node.py
+文本转语音节点，将文本发布转换为语音输出。
+scripts/vad_streaming_asr_node.py
+VAD 流式 ASR 节点。
+scripts/voice_bridge_node.py
+语音桥接节点，管理 ASR/TTS 与系统的流水线。
+src/cade_voice/__init__.py
+Python 包初始化文件。
+test/
+语音模块测试目录。
+test/all_test_results.json
+语音测试结果汇总数据。
+test/_debug_results.json
+语音测试调试结果数据。
+test/path_utils.py
+测试路径工具函数。
+test/run_all_tests.py
+语音模块测试运行脚本。
+test/test_offline_asr.py
+离线 ASR 功能测试。
+test/test_online_asr.py
+在线 ASR 功能测试。
+test/test_texts.py
+文本用例测试。
+test/test_tts.py
+TTS 功能测试。
+test/TEST_REPORT.md
+语音测试报告。
+test/voice_compare.py
+语音输出对比分析脚本。
+test/lab_test_scripts/
+实验室测试脚本集合。
+test/lab_test_scripts/__init__.py
+lab test 包初始化。
+test/lab_test_scripts/e2e_voice_interaction_test.py
+端到端语音交互测试。
+test/lab_test_scripts/noise_collector.py
+噪声采集脚本。
+test/lab_test_scripts/noise_mixer.py
+噪声混合工具。
+test/lab_test_scripts/noise_robustness_test.py
+噪声鲁棒性评估测试。
+test/lab_test_scripts/robot_benchmark.py
+机器人基准测试脚本。
+test/lab_test_scripts/robot_env_probe.py
+机器人环境探测测试。
+test/lab_test_scripts/robot_module_test.py
+机器人模块测试脚本。
+test/lab_test_scripts/README.md
+语音实验室测试脚本说明。
+
+
+
+
+llm client.py 是最高层
+controller.py 是次高层，其中每一个action_type都应该是一个原子动作
+
+skills 目录下的base_skill,nav_skill,vision_skill是真正的skill位置，
+在controler.py里self.vision_skill = VisionSkill()等行，把“视觉能力”和“导航能力”注入到机器人控制器中
+
+
+低层实现代码位于cade_vision 与cade_voice
+cade_vision/scripts/open_vision_node.py是我的yolo代码，将 3D 坐标通过 /vision/detections_3d 发布（JSON 格式），任务完成后向 /cade/task_status 发布结果
+其中他_on_task_cmd函数接受JSON格式的任务指令，根据不同的action类型启动相应的任务线程。
+analyzer.py，被open_vision_node调用
