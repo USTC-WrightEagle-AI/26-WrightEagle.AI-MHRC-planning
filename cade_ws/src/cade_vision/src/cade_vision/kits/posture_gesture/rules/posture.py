@@ -132,6 +132,56 @@ def _compute_body_angles_3d(keypoints_3d: dict, v_spine_global) -> dict:
     return res
 
 
+def _compute_sitting_features_b(
+    landmarks, keypoints_3d: dict, img_width, img_height
+) -> dict:
+    """
+    【数据解算器 - 通道 B】
+    统一抽取 3D 垂直落差特征与 2D 物理像素下的透视缩水特征。
+    """
+    features = {
+        "thigh_drop_3d": None,
+        "calf_drop_3d": None,
+        "thigh_torso_ratio_2d": None,
+    }
+
+    # 1. 3D 物理高度提取（Y 轴，单位：米）
+    def get_h3d(idx1, idx2):
+        p = keypoints_3d.get(idx1) or keypoints_3d.get(idx2)
+        return p[1] if p is not None else None
+
+    hi_y = get_h3d(23, 24)  # 髋关节
+    kn_y = get_h3d(25, 26)  # 膝盖
+    an_y = get_h3d(27, 28)  # 脚踝
+    sh_y = get_h3d(11, 12)  # 肩膀
+
+    if all(y is not None for y in (hi_y, kn_y, an_y, sh_y)):
+        features["thigh_drop_3d"] = abs(kn_y - hi_y)  # 髋膝高度差
+        features["calf_drop_3d"] = an_y - kn_y  # 膝踝落差（小腿下垂度）
+
+    # 2. 2D 像素平面投影缩水比值计算（使用已脱敏的 _get_pixel_2d）
+    left_2d = all(len(landmarks) > i and landmarks[i][2] > 0.5 for i in (11, 23, 25))
+    right_2d = all(len(landmarks) > i and landmarks[i][2] > 0.5 for i in (12, 24, 26))
+
+    if left_2d or right_2d:
+        h_idx, k_idx, s_idx = (11, 23, 25) if left_2d else (12, 24, 26)
+
+        # 还原到各项同性的物理像素空间计算欧氏距离
+        torso_len_2d = np.linalg.norm(
+            _get_pixel_2d(landmarks, s_idx, img_width, img_height)
+            - _get_pixel_2d(landmarks, h_idx, img_width, img_height)
+        )
+        thigh_len_2d = np.linalg.norm(
+            _get_pixel_2d(landmarks, k_idx, img_width, img_height)
+            - _get_pixel_2d(landmarks, h_idx, img_width, img_height)
+        )
+
+        if torso_len_2d > 1e-6:
+            features["thigh_torso_ratio_2d"] = thigh_len_2d / torso_len_2d
+
+    return features
+
+
 def _classify_posture_2d_fallback(landmarks):
     """
     当缺乏 3D 深度数据时的 2D 纯几何兜底分类器。
@@ -221,81 +271,48 @@ def is_torso_vertical_3d(keypoints_3d: dict):
     return False, None
 
 
-def check_sitting_3d(
-    landmarks, keypoints_3d: dict, body_angles_3d: dict, img_width, img_height
-) -> bool:
+def check_sitting_3d(valid_angles, body_angles_3d: dict, features_b: dict) -> bool:
     """
-    【坐姿规则模块】直接修改此处的几何逻辑、阈值来调优 sitting 判定。
-
-    坐姿是最容易和站立、半蹲、前倾混淆的姿态，所以这里使用两个通道：
-    - 通道 A：3D 躯干/大腿夹角，优先识别“人坐着但身体有后靠或前倾”的情况。
-    - 通道 B：3D 高度链 + 2D 投影缩水，识别“髋和膝高度接近、小腿继续下垂”的情况。
-
-    只要任一通道命中，就认为 sitting 成立。
+    【完全体 - 坐姿规则判定模块】
+    摒弃所有底层复杂的坐标和距离运算，只专注于三大规则分支的互斥与联动。
     """
-    # 通道 A：斜向大角度后靠校验
+    # 🌟 规则零：免死金牌一票否决
+    # 如果 2D 像素角度算出来你双腿笔直，无论 3D 深度怎么晃动，一律放行站立，绝不触发坐姿拦截。
+    if valid_angles and len(valid_angles) > 0:
+        if any(a >= 150 for a in valid_angles):
+            return False
+
+    # ==========================================
+    # 🚀 通道 A：斜向大角度后靠/前倾规则过滤器
+    # ==========================================
     lean_angle = body_angles_3d.get("lean_angle")
-
-    # 躯干必须处于大致直立的大范畴（未完全横躺，偏离垂直线 < 50°）
     if lean_angle is not None and lean_angle < 50:
-        # 检查左侧是否命中坐姿刚性特征
+        # 左侧校验
         if body_angles_3d["left_joint_angle"] is not None:
-            # 特征1：3D 真实躯干大腿夹角处于折叠区间 [60°, 125°]
-            # 特征2：大腿偏离垂直轴超过 50°（更趋近水平，即 ratio < cos(50°) ≈ 0.642）
             if 60 <= body_angles_3d["left_joint_angle"] <= 125:
                 if body_angles_3d["left_thigh_ratio"] < 0.642:
                     return True
-
-        # 检查右侧是否命中坐姿刚性特征
+        # 右侧校验
         if body_angles_3d["right_joint_angle"] is not None:
             if 60 <= body_angles_3d["right_joint_angle"] <= 125:
                 if body_angles_3d["right_thigh_ratio"] < 0.642:
                     return True
 
-    # 通道 B：物理高度差与 2D 投影缩水校验
-    def get_h3d(idx1, idx2):
-        # 同一语义点左右任选一侧。比如髋高度可由左髋或右髋提供，
-        # 这样能在单侧深度失效时继续工作。
-        p = keypoints_3d.get(idx1) or keypoints_3d.get(idx2)
-        return p[1] if p is not None else None
+    # ==========================================
+    # 🚀 通道 B：物理高度差与 2D 投影缩水规则过滤器
+    # ==========================================
+    thigh_drop_3d = features_b.get("thigh_drop_3d")
+    calf_drop_3d = features_b.get("calf_drop_3d")
+    thigh_torso_ratio_2d = features_b.get("thigh_torso_ratio_2d")
 
-    # y 值越小代表越高。坐姿通常表现为髋和膝高度接近，
-    # 同时踝点明显更低，形成“坐着、小腿下垂”的高度链。
-    hi_y = get_h3d(23, 24)
-    kn_y = get_h3d(25, 26)
-    an_y = get_h3d(27, 28)
-    sh_y = get_h3d(11, 12)
+    if thigh_drop_3d is not None and calf_drop_3d is not None:
+        # 特征1：髋关节与膝盖高度极其平齐（垂直落差小于 10cm）
+        # 特征2：膝盖到脚踝有明显的垂直落差（小腿垂直自然落地，高差大于 15cm）
+        if thigh_drop_3d < 0.10 and calf_drop_3d > 0.15:
+            # 特征3：大腿在 2D 像素投影上相对躯干极度变短（正面透视缩水比例 < 0.42）
+            if thigh_torso_ratio_2d is not None and thigh_torso_ratio_2d < 0.42:
+                return True
 
-    if all(y is not None for y in (hi_y, kn_y, an_y, sh_y)):
-        if abs(kn_y - hi_y) < 0.12 and (an_y - kn_y) > 0.15:
-            # 3D 高度条件命中后，再用 2D 形态做一次交叉校验：
-            # 坐姿时大腿在画面里的投影通常相对躯干更短，尤其是正面坐姿。
-            left_2d = all(
-                _is_visible_2d(landmarks, i)
-                for i in (LEFT_HIP, LEFT_KNEE, LEFT_SHOULDER)
-            )
-            right_2d = all(
-                _is_visible_2d(landmarks, i)
-                for i in (RIGHT_HIP, RIGHT_KNEE, RIGHT_SHOULDER)
-            )
-            if left_2d or right_2d:
-                h_idx, k_idx, s_idx = (
-                    (LEFT_HIP, LEFT_KNEE, LEFT_SHOULDER)
-                    if left_2d
-                    else (RIGHT_HIP, RIGHT_KNEE, RIGHT_SHOULDER)
-                )
-                torso_len_2d = np.linalg.norm(
-                    _get_pixel_2d(landmarks, s_idx, img_width, img_height)
-                    - _get_pixel_2d(landmarks, h_idx, img_width, img_height)
-                )
-                thigh_len_2d = np.linalg.norm(
-                    _get_pixel_2d(landmarks, k_idx, img_width, img_height)
-                    - _get_pixel_2d(landmarks, h_idx, img_width, img_height)
-                )
-                # thigh/torso < 0.45 是“投影缩水”条件：
-                # 站立时大腿投影往往不会这么短，坐着时髋膝高度接近会压缩该距离。
-                if torso_len_2d > 1e-6 and (thigh_len_2d / torso_len_2d) < 0.45:
-                    return True
     return False
 
 
@@ -420,6 +437,9 @@ def classify_posture_3d(landmarks, img_width, img_height, keypoints_3d: dict = N
         img_height,
     )
     body_angles_3d = _compute_body_angles_3d(keypoints_3d, v_spine_global)
+    features_b = _compute_sitting_features_b(
+        landmarks, keypoints_3d, img_width, img_height
+    )
 
     # 3. 三大姿态独立规则处理器并行诊断（按优先级或排他逻辑拦截）
 
