@@ -7,21 +7,33 @@ Supports both VITS and Kokoro architectures (auto-detected from model path).
 """
 
 import subprocess
-import soundfile as sf
-import sherpa_onnx
-import sounddevice as sd
 import time
 import argparse
-import numpy as np
 import os
 import sys
+import wave
 
 import rospy
 from std_msgs.msg import String
 import rospkg
+import numpy as np
 
 
-pkg_path = rospkg.RosPack().get_path('asr_tts')
+def _package_path() -> str:
+    return rospkg.RosPack().get_path("cade_voice")
+
+
+def _add_local_sherpa_runtime() -> None:
+    runtime_path = os.path.join(_package_path(), "src")
+    if os.path.isdir(os.path.join(runtime_path, "sherpa_onnx")):
+        sys.path.insert(0, runtime_path)
+
+
+_add_local_sherpa_runtime()
+import sherpa_onnx  # noqa: E402
+
+
+pkg_path = _package_path()
 
 
 def get_args():
@@ -107,7 +119,7 @@ def get_args():
     parser.add_argument(
         "--provider",
         type=str,
-        default="cuda",
+        default="cpu",
         help="Inference provider: cpu, cuda, coreml",
     )
 
@@ -169,10 +181,54 @@ def create_tts(args):
     return sherpa_onnx.OfflineTts(tts_config)
 
 
+def import_sounddevice():
+    try:
+        import sounddevice as sd  # noqa: PLC0415
+    except ImportError:
+        print("Please install sounddevice first. You can use")
+        print()
+        print("  pip install sounddevice")
+        print()
+        raise
+
+    return sd
+
+
+def is_default_device_name(target_name: str) -> bool:
+    return str(target_name or "").strip().lower() in ("", "default", "auto")
+
+
+def log_available_output_devices(devices) -> None:
+    rospy.logerr("Available output devices:")
+    for i, device in enumerate(devices):
+        if device["max_output_channels"] > 0:
+            rospy.logerr("  [%d] %s", i, device["name"])
+
+
+def resolve_output_device(devices, target_name):
+    """Resolve index/name-fragment speaker selection; default returns None."""
+    if is_default_device_name(target_name):
+        return None, "system default output"
+
+    target = str(target_name).strip()
+    if target.isdigit():
+        index = int(target)
+        if 0 <= index < len(devices) and devices[index]["max_output_channels"] > 0:
+            return index, f"[{index}] {devices[index]['name']}"
+        return None, ""
+
+    target_lower = target.lower()
+    for i, device in enumerate(devices):
+        if target_lower in device["name"].lower() and device["max_output_channels"] > 0:
+            return i, f"[{i}] {device['name']}"
+
+    return None, ""
+
+
 def play_audio(audio, sample_rate, device=None, wav_path=None):
     """Play audio, preferring system player (paplay) over sounddevice."""
 
-    if wav_path and os.path.exists(wav_path):
+    if device is None and wav_path and os.path.exists(wav_path):
         try:
             print(f"Using system player: paplay {wav_path}")
             subprocess.run(['paplay', wav_path], check=True)
@@ -182,6 +238,7 @@ def play_audio(audio, sample_rate, device=None, wav_path=None):
             print(f"paplay failed: {e}, falling back to sounddevice")
 
     try:
+        sd = import_sounddevice()
         if device is not None:
             device_info = sd.query_devices(device)
             device_sample_rate = int(device_info['default_samplerate'])
@@ -230,6 +287,18 @@ def generate_speech(tts, text, sid=0, speed=1.0):
     return audio.samples, audio.sample_rate
 
 
+def write_wav(path, audio, sample_rate):
+    """Write mono PCM16 WAV without requiring the soundfile package."""
+    samples = np.asarray(audio, dtype=np.float32)
+    samples = np.clip(samples, -1.0, 1.0)
+    pcm16 = (samples * 32767.0).astype(np.int16)
+    with wave.open(path, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(int(sample_rate))
+        handle.writeframes(pcm16.tobytes())
+
+
 class TTSNode:
     """ROS node for Text-to-Speech synthesis."""
 
@@ -240,23 +309,30 @@ class TTSNode:
         target_name = rospy.get_param("~device_name", "default")
         self.output_device = None
 
-        devices = sd.query_devices()
         rospy.loginfo(f"[TTS] Trying to lock output device: \"{target_name}\"")
 
-        for i, d in enumerate(devices):
-            if target_name in d['name'] and d['max_output_channels'] > 0:
-                self.output_device = i
-                rospy.loginfo(f"[TTS] Output device locked: [{i}] {d['name']}")
-                break
+        if is_default_device_name(target_name):
+            rospy.loginfo("[TTS] Output device locked: system default output")
+        else:
+            sd = import_sounddevice()
+            devices = sd.query_devices()
+            self.output_device, output_device_label = resolve_output_device(
+                devices, target_name
+            )
+            if self.output_device is not None:
+                rospy.loginfo("[TTS] Output device locked: %s", output_device_label)
 
-        if self.output_device is None:
+        if not is_default_device_name(target_name) and self.output_device is None:
             rospy.logerr(f"[TTS] Cannot find output device: \"{target_name}\"")
             rospy.logerr("Run 'python3 -m sounddevice' to check device names.")
+            log_available_output_devices(devices)
             sys.exit(1)
 
         rospy.loginfo("Initializing TTS engine...")
         self.tts = create_tts(self.args)
+        self.playing_pub = rospy.Publisher("/tts/playing", String, queue_size=10, latch=True)
         self.tts_subscription_ = rospy.Subscriber('tts', String, self.TTS, queue_size=10)
+        self.playing_pub.publish(String(data="idle"))
         rospy.loginfo("TTS Node is READY!")
 
     def TTS(self, msg: String):
@@ -264,21 +340,24 @@ class TTSNode:
         print(f"Generating speech for: '{msg.data}'")
         audio, sample_rate = generate_speech(self.tts, msg.data, self.args.sid, self.args.speed)
 
-        sf.write(
+        write_wav(
             self.args.output,
             audio,
-            samplerate=sample_rate,
-            subtype="PCM_16",
+            sample_rate,
         )
         print(f"Saved to {self.args.output}")
 
         if self.args.play:
             print("Playing audio...")
-            play_audio(
-                audio, sample_rate,
-                device=self.output_device,
-                wav_path=self.args.output,
-            )
+            self.playing_pub.publish(String(data="playing"))
+            try:
+                play_audio(
+                    audio, sample_rate,
+                    device=self.output_device,
+                    wav_path=self.args.output,
+                )
+            finally:
+                self.playing_pub.publish(String(data="idle"))
 
 
 def main():

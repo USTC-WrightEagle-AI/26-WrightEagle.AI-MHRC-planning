@@ -34,11 +34,19 @@ class CadeTracker:
         n_tracks = len(self._tracks)
         n_dets = len(detections)
 
-        if n_tracks == 0 or n_dets == 0:
+        if n_tracks == 0:
             track_ids = [self._next_id + i for i in range(n_dets)]
             self._next_id += n_dets
             self._tracks = self._new_tracks(detections, track_ids)
             return track_ids
+        if n_dets == 0:
+            aged_tracks = []
+            for tr in self._tracks:
+                tr["age"] += 1
+                if tr["age"] < self.MAX_AGE:
+                    aged_tracks.append(tr)
+            self._tracks = aged_tracks
+            return []
 
         cost = np.full((n_tracks, n_dets), 1e6)
         for ti, tr in enumerate(self._tracks):

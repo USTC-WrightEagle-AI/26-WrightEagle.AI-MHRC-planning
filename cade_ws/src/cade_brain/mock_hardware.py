@@ -28,6 +28,8 @@ class MockHardware:
                 result_data = "following the target person"
 
             response = {"status": "SUCCESS", "result": result_data}
+            if cmd.get("request_id"):
+                response["request_id"] = cmd["request_id"]
 
             # 延迟 0.5 秒模拟硬件动作耗时，然后秒回
             rospy.sleep(0.5)

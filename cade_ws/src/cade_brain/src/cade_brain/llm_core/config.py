@@ -91,3 +91,14 @@ class Config:
     def is_local_mode(cls) -> bool:
         """判断是否为本地模式"""
         return cls.MODE == RunMode.LOCAL
+
+    @classmethod
+    def validate_or_raise(cls) -> None:
+        """启动前校验 LLM 配置；失败时直接阻止 Brain 进入假就绪状态。"""
+        if cls.is_cloud_mode() and not cls.CLOUD_API_KEY:
+            raise RuntimeError(
+                "CADE_MODE=CLOUD but CADE_CLOUD_API_KEY is empty. "
+                "Export CADE_CLOUD_API_KEY before starting cade_brain."
+            )
+        if cls.is_local_mode() and not cls.LOCAL_BASE_URL:
+            raise RuntimeError("CADE_MODE=LOCAL but CADE_LOCAL_BASE_URL is empty.")

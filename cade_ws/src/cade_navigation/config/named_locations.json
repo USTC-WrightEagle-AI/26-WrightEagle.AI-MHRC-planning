@@ -1,0 +1,35 @@
+{
+    "sofa": {
+        "position": [-0.668, -0.862, -21.793]
+    },
+    "side_tables": {
+        "position": [-2.662, 0.889, 0.0]
+    },
+    "desk": {
+        "position": [-0.527, -1.464, 0.0]
+    },
+    "desk_lamp": {
+        "position": [-0.527, -1.464, 0.0]
+    },
+    "office": {
+        "position": [0.371, -0.931, 0.0]
+    },
+    "bathroom": {
+        "position": [0.371, -0.931, 0.0]
+    },
+    "bedroom": {
+        "position": [0.371, -0.931, 0.0]
+    },
+    "kitchen": {
+        "position": [0.371, -0.931, 0.0]
+    },
+    "tv_stand": {
+        "position": [2.004, -1.036, 0.0]
+    },
+    "trash": {
+        "position": [-1.143, 0.061, 0.0]
+    },
+    "table": {
+        "position": [-2.662, 0.889, 0.0]
+    }
+}

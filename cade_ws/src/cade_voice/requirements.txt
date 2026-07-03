@@ -1,10 +1,12 @@
-# Dependencies for asr_tts ROS package
+# Dependencies for cade_voice ROS package
 # Python >= 3.8
 
 # Core dependencies
 sherpa-onnx
 numpy
+python-dotenv
 
 # Audio I/O
 sounddevice
-soundfile
+# Optional for lab tests only; the runtime TTS node writes WAV with stdlib wave.
+# soundfile

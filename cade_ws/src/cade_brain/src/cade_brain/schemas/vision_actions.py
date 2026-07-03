@@ -1,85 +1,101 @@
 """
-Vision Actions — 视觉感知/计数类动作模型
-
-对照 vision_skills.py 里的每个纯函数，定义同名、同参数的 Pydantic 模型。
-字段名称严格对齐，确保 model_dump(exclude={"type"}) 可以直接 ** 解包传参。
+Vision Actions - observation, filtering, counting, and geometry helpers.
 """
 
-from typing import Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import Field
 
 from .base_action import BaseAction
 
 
-class FindObjectAction(BaseAction):
+PositionInput = Union[str, List[float], Dict[str, Any]]
+
+
+class ObservePeopleAction(BaseAction):
     """
-    Search Object State - Find a specific object in the environment.
+    Observe visible people.
+
+    Use include to request extra fields. Use position to return only the person
+    nearest to that vision/camera 3D point.
     """
 
-    type: Literal["find_object"] = "find_object"
-    target: str = Field(
-        ...,
-        description="The exact name of the object to look for (e.g., bottle, chips, cup).",
+    type: Literal["observe_people"] = "observe_people"
+    include: Optional[List[str]] = Field(
+        default=None,
+        description="Optional fields to include: gesture, posture, clothing.",
     )
-
-
-class FindPersonAction(BaseAction):
-    """
-    Search Person State - Find a specific person based on body posture, clothing color, or both.
-    """
-
-    type: Literal["find_person"] = "find_person"
-    target: str = Field(
-        default="person", description="The target class, usually 'person'."
+    position: Optional[PositionInput] = Field(
+        default=None,
+        description=(
+            "Optional vision/camera 3D point [x,y,z]. If provided, vision returns "
+            "only the visible person nearest to this point."
+        ),
     )
+    timeout: float = Field(default=10.0, description="Observation timeout in seconds")
+
+
+class FindPeopleAction(BaseAction):
+    """
+    Find people matching simple visual filters.
+    """
+
+    type: Literal["find_people"] = "find_people"
     gesture: Optional[str] = Field(
-        None,
-        description="Filter by body gesture/posture (e.g., waving, sitting, standing).",
+        default=None,
+        description="Gesture filter, e.g. waving, raising_left_arm, pointing_right.",
     )
-    cloth_color: Optional[str] = Field(
-        None, description="Filter by clothing color (e.g., red, blue, black, white)."
+    posture: Optional[str] = Field(
+        default=None,
+        description="Posture filter: standing, sitting, lying.",
     )
-
-
-class CountObjectsAction(BaseAction):
-    """
-    Count Objects State - Count the number of a specific object category in the room.
-    """
-
-    type: Literal["count_objects"] = "count_objects"
-    category: str = Field(
-        ..., description="The object category name to count (e.g., bottle, cup, chair)."
+    clothing: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Clothing filter, e.g. {'color':'blue'}, {'category':'top','color':'blue'}, "
+            "{'category':'glasses'}, {'category':'watch'}."
+        ),
     )
+    position: Optional[PositionInput] = Field(
+        default=None,
+        description="Optional [x,y,z]; after filtering, return only the nearest matching person.",
+    )
+    timeout: float = Field(default=10.0, description="Search timeout in seconds")
 
 
 class CountPeopleAction(BaseAction):
     """
-    Count People State - Count the number of people matching specific attributes (gesture/cloth color) in the room.
+    Count people matching simple visual filters.
     """
 
     type: Literal["count_people"] = "count_people"
-    category: str = Field(
-        default="person", description="The target category, always 'person'."
-    )
-    gesture: Optional[str] = Field(
-        None,
-        description="Filter by body posture/gesture (e.g., waving, sitting, standing).",
-    )
-    cloth_color: Optional[str] = Field(
-        None, description="Filter by clothing color (e.g., red, blue, white)."
-    )
+    gesture: Optional[str] = Field(default=None, description="Gesture filter")
+    posture: Optional[str] = Field(default=None, description="Posture filter")
+    clothing: Optional[Dict[str, Any]] = Field(default=None, description="Clothing filter")
+    timeout: float = Field(default=10.0, description="Count timeout in seconds")
 
 
-class NameRecognitionAction(BaseAction):
+class ObserveObjectsAction(BaseAction):
     """
-    人名识别状态 - 通过姓名识别人物
+    Observe visible non-person objects.
     """
 
-    type: Literal["name_recognition"] = "name_recognition"
-    name: str = Field(..., description="要识别的人物名称")
-    bind_to_appearance: bool = Field(
-        default=True, description="是否将名字与视觉外观绑定"
+    type: Literal["observe_objects"] = "observe_objects"
+    timeout: float = Field(default=10.0, description="Observation timeout in seconds")
+
+
+class CalculateDistanceAction(BaseAction):
+    """
+    Calculate 3D distance deterministically.
+
+    Use either b for point-to-point distance, or people for distances from a
+    point to every person and nearest-person selection.
+    """
+
+    type: Literal["calculate_distance"] = "calculate_distance"
+    a: PositionInput = Field(..., description="First vision/camera 3D point [x,y,z]")
+    b: Optional[PositionInput] = Field(default=None, description="Optional second 3D point")
+    people: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Optional people list returned by observe_people/find_people",
     )
-
-

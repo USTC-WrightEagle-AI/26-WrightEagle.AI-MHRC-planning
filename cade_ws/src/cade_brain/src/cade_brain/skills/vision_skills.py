@@ -1,112 +1,174 @@
 """
-Vision Skills — 视觉感知/计数类原子动作（纯函数）
+Vision Skills - small perception and geometry tools.
 
-每个函数对应一个 action.type，通过 @register_vision_tool 自动注册到 vision_tools。
-函数名即动作类型名，零双重维护。
+Each function name is the action.type exposed to the LLM.
 """
 
-from typing import Any, Dict, Optional
+import math
+from typing import Any, Dict, List, Optional
 
-from cade_brain.skills import HardwareContext, register_vision_tool
-
-# ── 底层 ROS 指令封装（内部复用） ───────────────────────────────
-
-
-def _execute(action_type: str, timeout: float = 30.0, **params: Any) -> Dict[str, Any]:
-    """通过 HardwareContext 发布 ROS 指令并等待结果"""
-    return HardwareContext().execute(action_type, timeout=timeout, **params)
+from cade_brain.skills import VisionHardwareContext, register_vision_tool
 
 
-# ── 视觉感知类动作 ─────────────────────────────────────────────
+def _execute(action_type: str, wait_timeout: float = 30.0, **params: Any) -> Dict[str, Any]:
+    """Publish a vision command and wait for its task status."""
+    return VisionHardwareContext().execute(
+        action_type,
+        wait_timeout=wait_timeout,
+        **params,
+    )
 
 
-@register_vision_tool
-def find_object(target: str, **kwargs) -> Dict[str, Any]:
-    """
-    寻找物体的核心物理技能
-    """
-    # 完美对齐底层的契约
-    payload = {
-        "action": "find_object",
-        "target": target.lower(),
+def _clean_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        key: value
+        for key, value in params.items()
+        if value is not None and value != "" and value != "unknown"
     }
-    # 发送到 /cade/task_cmd 并等待返回状态
-    return _execute(payload["action"], timeout=45.0, **payload)
 
 
 @register_vision_tool
-def find_person(
-    target: str = "person",
-    gesture: Optional[str] = None,
-    cloth_color: Optional[str] = None,
+def observe_people(
+    include: Optional[List[str]] = None,
+    position: Optional[Any] = None,
+    timeout: float = 10.0,
     **kwargs,
 ) -> Dict[str, Any]:
-    """
-    寻找人类的核心物理技能（支持手势与衣服颜色动态注入）
-    """
-    # 组装底层代码需要的 attributes 字典
-    attributes = {}
-    if gesture:
-        attributes["posture"] = gesture  # 对齐底层对于手势/姿态的解析
-    if cloth_color:
-        attributes["cloth_type"] = cloth_color  # 关键：对齐底层的 cloth_type 注入逻辑
-
-    payload = {
-        "action": "find_person",
-        "target": target.lower(),
-        "attributes": attributes if attributes else None,
-    }
-
-    # 发送到话题，点火！
-    return _execute(payload["action"], timeout=45.0, **payload)
+    """Observe visible people; include may request gesture/posture/clothing fields."""
+    observe_timeout = float(timeout or 10.0)
+    params = _clean_params(
+        {
+            "include": include,
+            "position": position,
+            "timeout": observe_timeout,
+        }
+    )
+    return _execute("observe_people", wait_timeout=observe_timeout + 2.0, **params)
 
 
 @register_vision_tool
-def count_objects(category: str, **kwargs) -> Dict[str, Any]:
-    """
-    统计特定物体的数量
-    """
-    payload = {
-        "action": "count_objects",
-        "category": category.lower(),
-        "attributes": None,
-    }
-    return _execute(payload["action"], timeout=45.0, **payload)
+def find_people(
+    gesture: Optional[str] = None,
+    posture: Optional[str] = None,
+    clothing: Optional[Dict[str, Any]] = None,
+    position: Optional[Any] = None,
+    timeout: float = 10.0,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Find people matching gesture/posture/clothing filters."""
+    observe_timeout = float(timeout or 10.0)
+    params = _clean_params(
+        {
+            "gesture": gesture,
+            "posture": posture,
+            "clothing": clothing,
+            "position": position,
+            "timeout": observe_timeout,
+        }
+    )
+    return _execute("find_people", wait_timeout=observe_timeout + 2.0, **params)
 
 
 @register_vision_tool
 def count_people(
-    gesture: Optional[str] = None, cloth_color: Optional[str] = None, **kwargs
+    gesture: Optional[str] = None,
+    posture: Optional[str] = None,
+    clothing: Optional[Dict[str, Any]] = None,
+    timeout: float = 10.0,
+    **kwargs,
 ) -> Dict[str, Any]:
-    """
-    统计特定条件的人数（完美契合底层的 category='person' 和 attributes 注入）
-    """
-    # 组装底层代码需要的 attributes 字典
-    attributes = {}
-    if gesture:
-        attributes["posture"] = gesture
-    if cloth_color:
-        attributes["cloth_type"] = cloth_color
-
-    payload = {
-        "action": "count_people",
-        "category": "person",  # 显式、死死固定为底层需要的 'person'
-        "attributes": attributes if attributes else None,
-    }
-
-    return _execute(payload["action"], timeout=45.0, **payload)
+    """Count people matching gesture/posture/clothing filters."""
+    observe_timeout = float(timeout or 10.0)
+    params = _clean_params(
+        {
+            "gesture": gesture,
+            "posture": posture,
+            "clothing": clothing,
+            "timeout": observe_timeout,
+        }
+    )
+    return _execute("count_people", wait_timeout=observe_timeout + 2.0, **params)
 
 
 @register_vision_tool
-def name_recognition(
-    name: str, bind_to_appearance: bool = True, **kwargs
+def observe_objects(timeout: float = 10.0, **kwargs) -> Dict[str, Any]:
+    """Return all visible non-person detections."""
+    observe_timeout = float(timeout or 10.0)
+    return _execute(
+        "observe_objects",
+        wait_timeout=observe_timeout + 2.0,
+        timeout=observe_timeout,
+    )
+
+
+@register_vision_tool
+def calculate_distance(
+    a: Any,
+    b: Optional[Any] = None,
+    people: Optional[List[Dict[str, Any]]] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
-    """通过名字识别人物（获取最近人物属性并附带 name）"""
-    result = _execute("get_nearest_person", timeout=5.0)
-    if result and result.get("status") == "SUCCESS":
-        result["name"] = name
-        return result
-    return result or {"status": "FAILED", "error": "No person detected nearby"}
+    """Deterministic distance calculator for positions or people lists."""
+    origin = _parse_position(a)
+    if origin is None:
+        return {"status": "FAILED", "error": "Invalid position a"}
+    if b is not None:
+        target = _parse_position(b)
+        if target is None:
+            return {"status": "FAILED", "error": "Invalid position b"}
+        return {"status": "SUCCESS", "distance": _distance(origin, target)}
+    if people is None:
+        return {"status": "FAILED", "error": "Either b or people is required"}
+
+    distances = []
+    nearest = None
+    for person in people:
+        position = _parse_position(person.get("position_3d") if isinstance(person, dict) else None)
+        if position is None:
+            continue
+        item = {
+            "track_id": person.get("track_id"),
+            "distance": _distance(origin, position),
+            "person": person,
+        }
+        distances.append(item)
+        if nearest is None or item["distance"] < nearest["distance"]:
+            nearest = item
+    if nearest is None:
+        return {"status": "FAILED", "error": "No people with valid position_3d"}
+    return {
+        "status": "SUCCESS",
+        "distances": distances,
+        "nearest_track_id": nearest.get("track_id"),
+        "nearest_distance": nearest.get("distance"),
+        "nearest_person": nearest.get("person"),
+    }
 
 
+def _parse_position(value):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        if "position_3d" in value:
+            value = value["position_3d"]
+        else:
+            value = [value.get("x"), value.get("y"), value.get("z")]
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.replace(";", ",").split(",")]
+        if len(parts) != 3:
+            return None
+        value = parts
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        try:
+            return [float(value[0]), float(value[1]), float(value[2])]
+        except (TypeError, ValueError):
+            return None
+    return None
 
+
+def _distance(a, b):
+    return math.sqrt(
+        (float(a[0]) - float(b[0])) ** 2
+        + (float(a[1]) - float(b[1])) ** 2
+        + (float(a[2]) - float(b[2])) ** 2
+    )

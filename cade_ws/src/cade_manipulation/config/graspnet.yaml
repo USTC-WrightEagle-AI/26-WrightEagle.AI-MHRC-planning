@@ -1,0 +1,27 @@
+# GraspNet 5090 Server Configuration
+graspnet:
+  # 5090 server address and port
+  host: "192.168.31.37"           # 5090 wired (enp6s0)
+  port: 9090
+  timeout: 10.0                   # TCP recv timeout (seconds)
+
+# Camera intrinsics (must match your RealSense)
+# These are example values for a D435 at 640x480 — calibrate yours.
+camera:
+  width: 640
+  height: 480
+  fx: 617.0
+  fy: 617.0
+  cx: 320.0
+  cy: 240.0
+  depth_scale: 0.001              # RealSense depth units → meters
+  rgb_topic: "/camera/color/image_raw"
+  depth_topic: "/camera/aligned_depth_to_color/image_raw"
+  camera_info_topic: "/camera/color/camera_info"
+
+# Arm configuration
+arm:
+  enabled: false                   # set to true when arm hardware is available
+  controller: "stub"               # stub | moveit | custom
+  gripper_topic: "/gripper/cmd"
+  gripper_close_force: 0.6        # default grip force (0-1)

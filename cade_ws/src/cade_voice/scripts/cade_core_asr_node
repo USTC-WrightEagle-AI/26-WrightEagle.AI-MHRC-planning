@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PYTHON_BIN="${CADE_CORE_PYTHON:-/home/nvidia/.conda/envs/speech310/bin/python}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -f "${SCRIPT_DIR}/cade_core_asr_node.py" ]]; then
+  SCRIPT_PATH="${SCRIPT_DIR}/cade_core_asr_node.py"
+else
+  SCRIPT_PATH="$(rospack find cade_voice)/scripts/cade_core_asr_node.py"
+fi
+
+exec "$PYTHON_BIN" "$SCRIPT_PATH" "$@"

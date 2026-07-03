@@ -1,508 +1,486 @@
-# CADE Brain 测试指南
+# CADE Brain 集成测试指南
 
-本指南帮助你单独测试 `cade_brain` 的完整流程，无需真实硬件。
-核心思路：手动向 ROS 话题发布消息，模拟 ASR 输入和硬件响应。
+本文档用于在比赛任务风格下测试 `cade_brain`、`cade_vision`、`cade_navigation`、ASR/TTS 和底层导航栈的完整链路。
 
----
+核心链路：
 
-## 1. 架构概览
-
-```
-┌─────────────┐    /asr     ┌──────────────┐   /cade/task_cmd    ┌─────────────┐
-│  ASR 节点   │ ──────────→ │  Brain Node  │ ──────────────────→ │  硬件节点   │
-│  (模拟)     │             │  (LLM+ReAct) │                     │  (模拟)     │
-└─────────────┘             └──────────────┘                     └─────────────┘
-                                │    ↑                                    │
-                                │    │ /cade/task_status                  │
-                                │    └────────────────────────────────────┘
-                                ↓
-                           /tts (最终回复)
+```text
+/asr
+  -> cade_brain
+  -> /cade/task_cmd_task3 -> cade_vision -> /cade/task_status_task3
+  -> /cade/task_cmd       -> cade_navigation -> move_base -> /cade/task_status
+  -> /tts
 ```
 
-**关键 ROS 话题：**
-- `/asr` (std_msgs/String) — 语音识别输入，触发 Brain 处理
-- `/cade/task_cmd` (std_msgs/String) — Brain 发布的动作指令
-- `/cade/task_status` (std_msgs/String) — 硬件返回的执行结果
-- `/tts` (std_msgs/String) — Brain 发布的语音回复
+## 1. 启动顺序
 
----
-
-## 2. 环境准备
-
-### 2.1 启动 ROS Master
+### 1.1 启动 roscore
 
 ```bash
-# 终端 1：启动 roscore
 roscore
 ```
 
-### 2.2 配置 Python 环境
+### 1.2 启动底层机器人、定位和导航栈
+
+`cade_navigation` 只是 Brain 到 `move_base` 的任务桥，不负责启动底盘、定位、costmap 或 `move_base`。先启动现有底层系统。
+
+常用 ZHXY 启动方式：
 
 ```bash
-# 终端 2：进入工作空间
+cd /home/nvidia/ZHXY/sh
+./launch_all.sh
+```
+
+打开 rviz:
+
+```bash
+source /home/nvidia/workdir/localizaion_ws/devel/setup.bash
+rviz -d /home/nvidia/workdir/localizaion_ws/src/jh_localization/rviz/localization.rviz
+```
+
+如果地图选对，RViz 里当前激光/点云应能和地图结构对齐；用 `2D Pose Estimate` 给出初始位姿后，机器人在 `map` 下的位置应稳定。如果地图选错，激光/点云会明显对不上墙、走廊或房间结构，导航目标也会整体错位。
+
+启动后检查：
+
+```bash
 cd /home/nvidia/Desktop/task3/cade_ws
 source devel/setup.bash
 
-# 设置环境变量（根据你的 LLM 配置）
-export LLM_MODE=cloud          
-export LLM_API_KEY=your_key
-export LLM_BASE_URL=https://api.deepseek.com
-export LLM_MODEL=deepseek-chat
-
-# 切换为本地模式
-export CADE_MODE=LOCAL
-export CADE_LOCAL_BASE_URL="http://localhost:11434/v1"
-# 本地模型名（根据你本地运行的模型改）
-export CADE_LOCAL_MODEL="qwen3:8b"
-# 本地 API key（如果你的本地服务需要，可填；Ollama 默认可用 'ollama'）
-export CADE_LOCAL_API_KEY="ollama"
-
-
-# 可选：把 Cloud key 取消/清空以避免误用
-unset CADE_CLOUD_API_KEY
-
+rosnode list | grep -E 'move_base|localization|laser|pointcloud'
+rostopic list | grep -E '^/tf$|^/map$|^/move_base|^/local_odom$'
+rosrun cade_navigation get_current_map_pose.py --timeout 3.0
 ```
 
-### 2.3 验证环境
+`get_current_map_pose.py` 应输出当前机器人在 `map` 下的 `x y yaw_deg`。如果这里失败，先修定位、TF 或 `move_base`。
+
+### 1.3 初始化机器人位姿
+
+如果定位启动后不知道机器人在地图中的初始位置，用 RViz 初始化：
+
+1. 打开 RViz，确认 Fixed Frame 是 `map`。
+2. 使用 `2D Pose Estimate`，在地图上点机器人当前真实位置和朝向。
+3. 等 2 到 3 秒后执行：
 
 ```bash
-# 检查 ROS 话题是否就绪
-rostopic list | grep -E "asr|task_cmd|task_status|tts"
+rosrun cade_navigation get_current_map_pose.py --timeout 3.0
 ```
 
----
+输出稳定后再开始任务测试。
 
-## 3. 测试流程
+也可以直接向 `/initialpose` 发布初始位姿；RViz 更安全直观，优先用 RViz。
 
-### 3.1 启动 Brain Node
+### 1.4 启动 CADE 上层节点
 
 ```bash
-# 终端 2：启动大脑节点
 cd /home/nvidia/Desktop/task3/cade_ws
 source devel/setup.bash
-rosrun cade_brain brain_node.py --env "You are sitting in a lab."
+roslaunch launch/cade_full.launch
 ```
 
-启动后应看到：
-```
-╔═══════════════════════════════════════════════════════════╗
-║   CADE - Cognitive Agent for Domestic Environment        ║
-║   Architecture: Function-as-Tool (Refactored v2)         ║
-╚═══════════════════════════════════════════════════════════╝
+当前 `cade_full.launch` 默认启动：
 
-Robot Controller initialized (Tool Registry + ReAct)
-  Tools Registry: 14 functions loaded
-  Memory: conversation_history only
-```
+- `cade_brain`
+- `cade_vision`
+- `cade_navigation`
 
-### 3.2 启动监控终端
+ASR/TTS 节点默认不启动；测试时直接向 `/asr` 发布文本、监听 `/tts` 即可。如果要启用真实语音节点，使用：
 
 ```bash
-# 终端 3：监控 Brain 发出的动作指令
+roslaunch launch/cade_full.launch enable_asr:=true enable_tts:=true
+```
+
+启用真实语音前要确保当前 Python 环境已经安装 `sherpa_onnx`、`soundfile` 等语音依赖。
+
+其中 `cade_navigation` 会加载：
+
+```text
+src/cade_navigation/config/named_locations.json
+```
+
+这个文件定义了 `kitchen`、`sofa`、`desk` 等语义地点到地图坐标的映射。
+
+## 2. 地点坐标文件与标定
+
+地点文件：
+
+```bash
+src/cade_navigation/config/named_locations.json
+```
+
+当前初始内容是占位坐标，用于先跑通链路：
+
+```json
+{
+  "sofa": [0.0, 0.0],
+  "side_tables": [1.8, 0.0],
+  "desk": [3.5, 0.8],
+  "desk_lamp": [3.9, 1.1],
+  "office": [5.0, 0.2],
+  "bathroom": [0.4, 3.0],
+  "bedroom": [2.2, 3.4],
+  "kitchen": [5.2, 3.2],
+  "tv_stand": [1.0, 4.8],
+  "trash": [4.8, 4.6],
+  "table": [1.8, 0.0]
+}
+```
+
+支持格式：
+
+```json
+"kitchen": [5.2, 3.2]
+```
+
+等价于 map 坐标 `[x, y, 0]`。
+
+如果需要固定朝向：
+
+```json
+"kitchen": {"position": [5.2, 3.2, 0.0], "yaw_deg": 90}
+```
+
+标定一个地点的推荐流程：
+
+1. 启动底层定位和导航栈。
+2. 用遥控器或 RViz 把机器人移动到地点附近，例如沙发旁。
+3. 让机器人朝向你希望的到达朝向。
+4. 读取当前坐标：
+
+```bash
+rosrun cade_navigation get_current_map_pose.py --timeout 3.0
+```
+
+输出示例：
+
+```text
+Current robot pose in map:
+x:       1.234
+y:       5.678
+yaw_deg: 91.200
+
+1.234 5.678 91.200
+```
+
+5. 修改 `named_locations.json`：
+
+```json
+"sofa": {"position": [1.234, 5.678, 0.0], "yaw_deg": 91.2}
+```
+
+6. 重启 `cade_navigation` 或重启 `cade_full.launch`。`cade_navigation` 启动时读取地点表，不会实时监听文件变化。
+
+地点名匹配支持大小写、空格和下划线差异，例如：
+
+- `side tables`
+- `side_tables`
+- `Side Tables`
+
+都会匹配到 `side_tables`。
+
+## 3. 直接验证导航模块
+
+先绕过 LLM，直接测试 `cade_navigation` 是否能接收命名地点并发给 `move_base`。
+
+```bash
+rostopic pub -1 /cade/task_cmd std_msgs/String "data: '{\"action\":\"navigation\",\"position\":\"kitchen\",\"timeout\":60}'"
+```
+
+观察：
+
+```bash
 rostopic echo /cade/task_cmd
+rostopic echo /cade/task_status
+rostopic echo /move_base/goal
+rostopic echo /move_base/status
+```
 
-# 终端 4：监控 Brain 的语音回复
+期望：
+
+- `/cade/task_cmd` 收到 `navigation`。
+- `/move_base/goal` 收到 `frame_id: map` 的目标。
+- `/cade/task_status` 最终返回 `SUCCESS`、`FAILED` 或 `TIMEOUT`。
+
+测试未知地点：
+
+```bash
+rostopic pub -1 /cade/task_cmd std_msgs/String "data: '{\"action\":\"navigation\",\"position\":\"garage\",\"timeout\":10}'"
+```
+
+期望 `/cade/task_status` 中出现类似：
+
+```text
+Unknown named location: garage
+```
+
+## 4. 向 Brain 发送一句话
+
+Brain 订阅 `/asr`，消息类型是 `std_msgs/String`。发布一条文本即可触发一次完整决策。
+
+模板：
+
+```bash
+rostopic pub -1 /asr std_msgs/String "data: 'Navigate to the kitchen'"
+rostopic pub -1 /asr std_msgs/String "data: 'Search for the people with white T shirt'"
+```
+
+查看 Brain 输出：
+
+```bash
 rostopic echo /tts
 ```
 
-### 3.3 发送测试指令
+如果只想让 TTS 播放一句机器人回复，可以直接发布到 `/tts`：
 
 ```bash
-# 终端 5：模拟 ASR 输入
-rostopic pub -1 /asr std_msgs/String "data: 'Go to the kitchen'"
+rostopic pub -1 /tts std_msgs/String "data: 'I am ready.'"
 ```
 
-### 3.4 手动响应硬件反馈
+这只测试 TTS，不会触发 Brain 决策。
 
-当 Brain 发布 `/cade/task_cmd` 后，**立即**在另一个终端发布假的成功响应：
+## 5. 比赛任务测试指令
+
+下面 10 条按真实任务口吻发布到 `/asr`。不要在指令里加入工具选择、模块限制或调试提示。
+
+### 5.1 Escort the person raising their left arm from the sofa to the side tables
 
 ```bash
-# 终端 6：模拟硬件成功响应
-rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":\"arrived at kitchen\"}'"
+rostopic pub -1 /asr std_msgs/String "data: 'Escort the person raising their left arm from the sofa to the side tables'"
 ```
 
-**核心原则：每看到一次 `/cade/task_cmd`，就手动往 `/cade/task_status` 发一次 SUCCESS。**
+预期链路：
 
----
+1. Brain 导航到 `sofa`。
+2. Vision 查找 `raising_left_arm` 的人。
+3. Navigation 跟随或陪同该人。
+4. Brain 导航/确认到达 `side_tables`。
 
-## 4. 完整测试场景
-
-### 场景 1：简单导航
-
-**目标：** 测试单步导航动作
-
-**步骤：**
-1. 发送指令：
-   ```bash
-   rostopic pub -1 /asr std_msgs/String "data: 'Go to the kitchen'"
-   ```
-
-2. 观察 Brain 输出，等待 `/cade/task_cmd` 出现：
-   ```json
-   {"action": "goToLoc", "target": "kitchen"}
-   ```
-
-3. 手动响应：
-   ```bash
-   rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":\"arrived at kitchen\"}'"
-   ```
-
-4. 观察 Brain 是否在 `/tts` 发布回复
-
----
-
-### 场景 2：多步 ReAct 循环
-
-**目标：** 测试 LLM 的多步推理和动作链
-
-**指令：**
-```
-Go to the kitchen, find a waving person, then follow them
-```
-
-**预期流程：**
-
-| 步骤 | Brain 发布的 /cade/task_cmd | 你应发布的 /cade/task_status |
-|------|----------------------------|----------------------------|
-| 1 | `{"action":"goToLoc","target":"kitchen"}` | `{"status":"SUCCESS","result":"arrived at kitchen"}` |
-| 2 | `{"action":"find_person","gesture":"waving","room":"kitchen"}` | `{"status":"SUCCESS","result":{"person_pos":"near table","gesture":"waving"}}` |
-| 3 | `{"action":"follow_person","person_name":"waving_person"}` | `{"status":"SUCCESS","result":"following the waving person"}` |
-
-**详细步骤：**
-
-1. 发送指令：
-   ```bash
-   rostopic pub -1 /asr std_msgs/String "data: 'Go to the kitchen, find a waving person, then follow them'"
-   ```
-
-2. 等待第一步指令，手动响应：
-   ```bash
-   rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":\"arrived at kitchen\"}'"
-   ```
-
-3. 等待第二步指令，手动响应：
-   ```bash
-   rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":{\"person_pos\":\"near table\",\"gesture\":\"waving\"}}'"
-   ```
-
-4. 等待第三步指令，手动响应：
-   ```bash
-   rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":\"following the waving person\"}'"
-   ```
-
-5. 观察 Brain 的最终回复
-
----
-
-### 场景 3：物体抓取
-
-**目标：** 测试物体搜索和抓取流程
-
-**指令：**
-```
-Find the red cup and bring it to me
-```
-
-**预期流程：**
-
-| 步骤 | /cade/task_cmd | /cade/task_status |
-|------|----------------|-------------------|
-| 1 | `{"action":"find_object","target":"red cup"}` | `{"status":"SUCCESS","result":{"position":[1.2,0.5,0.8]}}` |
-| 2 | `{"action":"bringMeObj","object_name":"red cup","placement":"near user"}` | `{"status":"SUCCESS","result":"brought the red cup"}` |
-
-**手动响应：**
+### 5.2 Give me a dice from the desk
 
 ```bash
-# 步骤 1：找到物体
-rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":{\"position\":[1.2,0.5,0.8]}}'"
-
-# 步骤 2：抓取成功
-rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":\"brought the red cup\"}'"
+rostopic pub -1 /asr std_msgs/String "data: 'Give me a dice from the desk'"
 ```
 
----
+预期链路：
 
-### 场景 4：人数统计
+1. Brain 导航到 `desk`。
+2. Vision 查找 `dice`。
+3. 抓取模块执行取物。
+4. 回到用户附近或完成递交动作。
 
-**目标：** 测试视觉计数功能
-
-**指令：**
-```
-How many people are sitting in the classroom?
-```
-
-**预期流程：**
-
-| 步骤 | /cade/task_cmd | /cade/task_status |
-|------|----------------|-------------------|
-| 1 | `{"action":"count_people","room":"classroom","gesture":"sitting"}` | `{"status":"SUCCESS","result":{"count":5}}` |
-
-**手动响应：**
+### 5.3 Meet jane in the office and follow them to the desk lamp
 
 ```bash
-rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":{\"count\":5}}'"
+rostopic pub -1 /asr std_msgs/String "data: 'Meet jane in the office and follow them to the desk lamp'"
 ```
 
----
+预期链路：
 
-### 场景 5：衣服识别
+1. 导航到 `office`。
+2. 查找或识别 Jane。
+3. 启动跟随。
+4. 到达 `desk_lamp` 附近后结束。
 
-**目标：** 测试按衣服颜色识别人物
-
-**指令：**
-```
-Find the person wearing a red shirt in the living room
-```
-
-**预期流程：**
-
-| 步骤 | /cade/task_cmd | /cade/task_status |
-|------|----------------|-------------------|
-| 1 | `{"action":"find_person","cloth_color":"red","room":"living_room"}` | `{"status":"SUCCESS","result":{"person_pos":"near sofa"}}` |
-
-**手动响应：**
+### 5.4 Get a food from the desk and bring it to me
 
 ```bash
-rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":{\"person_pos\":\"near sofa\"}}'"
+rostopic pub -1 /asr std_msgs/String "data: 'Get a food from the desk and bring it to me'"
 ```
 
----
+预期链路：
 
-### 场景 6：失败响应测试
+1. 导航到 `desk`。
+2. 查找 `food`。
+3. 抓取。
+4. 返回用户或当前交互位置。
 
-**目标：** 测试 Brain 对失败的处理
-
-**指令：**
-```
-Go to the bedroom
-```
-
-**手动响应（模拟失败）：**
+### 5.5 Look for a dish in the bathroom then fetch it and deliver it to simone in the bedroom
 
 ```bash
-rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"FAILED\",\"error\":\"Path blocked\"}'"
+rostopic pub -1 /asr std_msgs/String "data: 'Look for a dish in the bathroom then fetch it and deliver it to simone in the bedroom'"
 ```
 
-**预期行为：** Brain 应该在下一轮 LLM 调用中处理失败，并可能重试或报告错误。
+预期链路：
 
----
+1. 导航到 `bathroom`。
+2. 查找并抓取 `dish`。
+3. 导航到 `bedroom`。
+4. 查找 Simone 并递交。
 
-## 5. 动作类型速查表
+### 5.6 Meet angel in the office and follow them
 
-### 导航类动作 (nav_skills)
-
-| 动作类型 | 参数 | 说明 |
-|---------|------|------|
-| `goToLoc` | `target` | 导航到指定位置 |
-| `follow_person` | `person_name`, `gesture`, `location` | 跟随人物 |
-| `guide_person` | `person_name`, `from_beacon`, `to_beacon` | 引导人物 |
-| `bringMeObj` | `object_name`, `placement` | 取物体并带回 |
-| `takeObjFromPlcmt` | `object_name`, `placement` | 从指定位置拿物体 |
-| `wait` | `duration`, `interruptible` | 等待指定时间 |
-| `listening` | `continuous`, `vad_enabled`, `wake_word` | 进入监听模式 |
-
-### 视觉类动作 (vision_skills)
-
-| 动作类型 | 参数 | 说明 |
-|---------|------|------|
-| `find_person` | `room`, `gesture`, `cloth_color`, `category` | 寻找人物 |
-| `find_object` | `target`, `room` | 寻找物体 |
-| `count_people` | `room`, `gesture`, `category` | 统计人数 |
-| `count_objects` | `category`, `placement` | 统计物体数量 |
-| `get_nearest_person` | 无 | 获取最近人物属性 |
-
----
-
-## 6. 响应格式模板
-
-### 成功响应
-
-```json
-{
-  "status": "SUCCESS",
-  "result": "简单文本结果"
-}
-```
-
-```json
-{
-  "status": "SUCCESS",
-  "result": {
-    "key1": "value1",
-    "key2": "value2"
-  }
-}
-```
-
-### 失败响应
-
-```json
-{
-  "status": "FAILED",
-  "error": "错误描述"
-}
-```
-
-### 超时响应
-
-```json
-{
-  "status": "TIMEOUT",
-  "error": "No response within 30s"
-}
-```
-
----
-
-## 7. 调试技巧
-
-### 7.1 查看已注册的工具
-
-Brain 启动时会打印：
-```
-Tools Registry: 14 functions loaded
-```
-
-### 7.2 查看 LLM 输出
-
-Brain 会打印 LLM 的原始输出：
-```
-📄 LLM 原始输出:
-------------------------------------------------------------
-{
-  "thought": "用户想去厨房...",
-  "reply": "好的，我正在前往厨房",
-  "action": {
-    "type": "navigation",
-    "position": "kitchen"
-  }
-}
-------------------------------------------------------------
-```
-
-### 7.3 查看动作执行
-
-Brain 会打印每个动作的执行结果：
-```
-[Action] navigation succeeded: {'status': 'SUCCESS', 'result': 'arrived at kitchen'}
-```
-
-### 7.4 查看 ReAct 循环
-
-Brain 会打印循环状态：
-```
-[Brain thinking... (loop 1)]
-[Thought #1]: 用户想去厨房，我需要导航过去
-[Reply #1]: 好的，我正在前往厨房
-[Action #1]: navigation
-
-[ReAct] Loop ended after 2 round(s)
-```
-
-### 7.5 无 ROS 模式
-
-如果没有 ROS，Brain 会自动进入交互模式：
 ```bash
-python scripts/brain_node.py
-# 输出: Running in interactive mode (no ROS)
-# 然后可以直接在终端输入命令
-You: Go to the kitchen
+rostopic pub -1 /asr std_msgs/String "data: 'Meet angel in the office and follow them'"
 ```
 
-在无 ROS 模式下，所有技能调用会返回模拟的成功响应：
-```
-[Skill] (no ROS) Simulating task status: SUCCESS
+预期链路：
+
+1. 导航到 `office`。
+2. 查找或识别 Angel。
+3. 启动持续跟随。
+
+### 5.7 Tell me the name of the person at the sofa
+
+```bash
+rostopic pub -1 /asr std_msgs/String "data: 'Tell me the name of the person at the sofa'"
 ```
 
----
+预期链路：
+
+1. 导航到 `sofa`。
+2. 观察附近的人。
+3. 返回识别到的姓名；如果姓名识别模块未接入，应明确说明未能识别姓名。
+
+### 5.8 Meet charlie in the bedroom and follow them to the kitchen
+
+```bash
+rostopic pub -1 /asr std_msgs/String "data: 'Meet charlie in the bedroom and follow them to the kitchen'"
+```
+
+预期链路：
+
+1. 导航到 `bedroom`。
+2. 查找或识别 Charlie。
+3. 跟随 Charlie。
+4. 到达 `kitchen` 附近后结束。
+
+### 5.9 Get a plate from the tv stand and throw it in the trash
+
+```bash
+rostopic pub -1 /asr std_msgs/String "data: 'Get a plate from the tv stand and throw it in the trash'"
+```
+
+预期链路：
+
+1. 导航到 `tv_stand`。
+2. 查找并抓取 `plate`。
+3. 导航到 `trash`。
+4. 执行丢弃/放置动作。
+
+### 5.10 Navigate to the side tables then meet charlie and follow them to the kitchen
+
+```bash
+rostopic pub -1 /asr std_msgs/String "data: 'Navigate to the side tables then meet charlie and follow them to the kitchen'"
+```
+
+预期链路：
+
+1. 导航到 `side_tables`。
+2. 查找或识别 Charlie。
+3. 启动跟随。
+4. 到达 `kitchen` 附近后结束。
+
+## 6. 监控窗口
+
+建议开几个独立终端观察：
+
+```bash
+rostopic echo /cade/task_cmd
+rostopic echo /cade/task_status
+rostopic echo /cade/task_cmd_task3
+rostopic echo /cade/task_status_task3
+rostopic echo /tts
+```
+
+导航相关：
+
+```bash
+rostopic echo /move_base/goal
+rostopic echo /move_base/status
+rostopic echo /target_marker
+```
+
+视觉相关：
+
+```bash
+rostopic echo /vision/people_tracks_task3
+rostopic echo /vision/detections_3d_task3
+```
+
+跟随调试：
+
+```bash
+rostopic echo /cade/navigation/follow_debug
+```
+
+## 7. 判断测试是否通过
+
+一次任务至少满足：
+
+- Brain 收到 `/asr` 后有 `[ASR] Received` 日志。
+- Brain 发布了合理的 vision 或 navigation action。
+- 对语义地点，例如 `kitchen`，`/cade/task_cmd` 中 position 保持为地点名或 navigation 已解析到 map 目标。
+- `cade_navigation` 向 `/move_base` 发出目标，或对不可执行任务返回明确失败。
+- `cade_vision` 在需要找人、手势、衣物时被激活。
+- `/tts` 最终有一句自然语言回复。
 
 ## 8. 常见问题
 
-### Q: Brain 收不到 /asr 消息
+### `Navigate to kitchen` 没有移动
 
-**检查：**
-```bash
-# 确认 /asr 话题存在
-rostopic list | grep asr
-
-# 确认消息格式正确
-rostopic pub -1 /asr std_msgs/String "data: 'test'"
-```
-
-### Q: Brain 发布了 /cade/task_cmd 但没有收到响应
-
-**检查：**
-```bash
-# 确认 /cade/task_status 话题存在
-rostopic list | grep task_status
-
-# 确认响应格式正确（必须是 JSON）
-rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":\"ok\"}'"
-```
-
-### Q: Brain 卡在等待响应
-
-**原因：** 你没有及时发布 `/cade/task_status`
-
-**解决：** Brain 默认超时 30-120 秒（取决于动作类型），超时后会返回 TIMEOUT 错误。
-
-### Q: LLM 输出格式错误
-
-**检查：**
-- 查看 Brain 终端的 LLM 原始输出
-- 确认 LLM API 配置正确
-- 检查网络连接
-
-### Q: 工具函数找不到
-
-**检查：**
-- 确认 `skills/__init__.py` 正确导入了 `nav_skills` 和 `vision_skills`
-- 确认装饰器 `@register_nav_tool` / `@register_vision_tool` 正确应用
-
----
-
-## 9. 自动化测试脚本
-
-如果需要自动化测试，可以创建一个简单的 shell 脚本：
+检查：
 
 ```bash
-#!/bin/bash
-# test_brain.sh - 自动化测试 Brain 流程
-
-# 启动 Brain（后台）
-rosrun cade_brain brain_node.py &
-BRAIN_PID=$!
-sleep 3
-
-# 发送测试指令
-rostopic pub -1 /asr std_msgs/String "data: 'Go to the kitchen'"
-
-# 等待 Brain 发布指令
-sleep 5
-
-# 模拟硬件响应
-rostopic pub -1 /cade/task_status std_msgs/String "data: '{\"status\":\"SUCCESS\",\"result\":\"arrived at kitchen\"}'"
-
-# 等待 Brain 处理
-sleep 3
-
-# 清理
-kill $BRAIN_PID
-echo "Test complete"
+rostopic echo /cade/task_cmd
+rostopic echo /cade/task_status
+rostopic echo /move_base/goal
 ```
 
----
+如果 `/cade/task_status` 显示 `Cannot connect to move_base action server`，说明底层 `move_base` 没启动或 action 名称不对。
 
-## 10. 测试检查清单
+如果显示 `Unknown named location`，检查 `named_locations.json` 是否有该地点，并重启 `cade_navigation`。
 
-- [ ] Brain 成功启动，显示 14 个工具注册
-- [ ] 发送简单指令后，Brain 在 /cade/task_cmd 发布动作
-- [ ] 手动响应后，Brain 继续处理或回复
-- [ ] 多步指令能正确触发 ReAct 循环
-- [ ] 失败响应能被 Brain 正确处理
-- [ ] 最终回复正确发布到 /tts
-- [ ] 无 ROS 模式下可以交互测试
+### 修改地点文件后没有生效
 
----
+`cade_navigation` 启动时读取 `named_locations`，不会自动监听文件变化。修改后重启：
 
-**核心原则：每看到一次 `/cade/task_cmd`，就手动往 `/cade/task_status` 发一次 SUCCESS。**
+```bash
+rosnode kill /cade_navigation
+roslaunch launch/cade_full.launch
+```
+
+如果只单独启动导航桥：
+
+```bash
+rosrun cade_navigation navigation_node.py
+```
+
+但单独启动时要确保 `~named_locations` 已加载；更推荐用 `cade_full.launch`。
+
+### `get_current_map_pose.py` 失败
+
+说明 `map -> base_link` TF 不通。检查：
+
+```bash
+rostopic list | grep '^/tf$'
+rosnode list | grep -E 'localization|move_base'
+rostopic echo -n 1 /local_odom
+```
+
+先解决定位，再测试 Brain。
+
+### 视觉找不到人或手势
+
+检查：
+
+```bash
+rostopic echo /cade/task_cmd_task3
+rostopic echo /cade/task_status_task3
+rostopic echo /vision/people_tracks_task3
+```
+
+确认 `open_vision_node.py` 窗口中能看到人体框、pose 和 gesture/posture 结果。动作类任务需要人进入 RealSense 视野，并保持手势 2 到 3 秒。
+
+### 跟随失败但视觉还看得到人
+
+如果 `/cade/task_status` 中出现 `move_base_state: ABORTED` 或路径不可达，优先按导航问题处理：目标点可能落在障碍物、未知区域或 inflation layer 内。先测试命名地点导航，再测试跟随。
+
+## 9. 建议测试顺序
+
+1. 启动底层定位和导航，确认 `get_current_map_pose.py` 正常。
+2. 直接测试 `/cade/task_cmd` 到 `kitchen`。
+3. 标定并修正 `named_locations.json` 中的地点。
+4. 启动 `cade_full.launch`。
+5. 发布 `Navigate to the side tables`，确认语义导航通过。
+6. 发布 `Tell me the name of the person at the sofa`，确认导航 + 视觉链路。
+7. 发布 `Escort the person raising their left arm from the sofa to the side tables`，测试导航 + 手势 + 跟随。
+8. 最后测试包含抓取/递交的物品任务。

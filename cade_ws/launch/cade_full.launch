@@ -4,10 +4,12 @@
   <!-- Architecture: Modular ROS Pub/Sub                          -->
   <!--                                                            -->
   <!-- Nodes:                                                     -->
-  <!--   1. cade_brain:  LLM controller, world model, skills      -->
-  <!--   2. cade_vision: YOLO + RealSense, 3D detections          -->
-  <!--   3. cade_voice:  ASR (speech recognition)                  -->
-  <!--   4. cade_voice:  TTS (text-to-speech)                      -->
+  <!--   1. cade_brain:         LLM controller, world model       -->
+  <!--   2. cade_vision:        YOLO + RealSense, 3D detections   -->
+  <!--   3. cade_navigation:    Brain command bridge to move_base  -->
+  <!--   4. cade_manipulation:  GraspNet 5090 + arm control       -->
+  <!--   5. cade_voice:         ASR (speech recognition)          -->
+  <!--   6. cade_voice:         TTS (text-to-speech)              -->
   <!--                                                            -->
   <!-- Topics:                                                    -->
   <!--   /asr                -  ASR results (voice -> brain)      -->
@@ -17,23 +19,107 @@
   <!--   /vision/detections_3d - 3D detection results             -->
   <!-- ========================================================= -->
 
-  <!-- Voice Layer: ASR -->
-  <node name="asr_node" pkg="cade_voice" type="asr_node.py" output="screen">
-    <param name="model_path" value="$(find cade_voice)/models/vosk-model-small-cn-0.22"/>
+  <arg name="enable_asr" default="true"/>
+  <arg name="enable_tts" default="true"/>
+  <arg name="enable_vision" default="true"/>
+  <arg name="enable_navigation" default="true"/>
+  <arg name="enable_manipulation" default="true"/>
+  <arg name="enable_brain" default="true"/>
+  <arg name="voice_mic_id" default="default"/>
+  <arg name="voice_speaker_id" default="default"/>
+  <arg name="voice_provider" default="cpu"/>
+  <arg name="asr_input_gain_db" default="3.0"/>
+  <arg name="asr_vad_threshold" default="0.35"/>
+  <arg name="asr_normalize_speech" default="true"/>
+  <arg name="asr_target_rms_dbfs" default="-22.0"/>
+  <arg name="voice_asr_type" default="cade_core"/>
+  <arg name="cade_core_python" default="/home/nvidia/.conda/envs/speech310/bin/python"/>
+  <arg name="cade_asr_model_type" default="streaming_nemotron"/>
+  <arg name="cade_asr_model_dir" default="/home/nvidia/audio/models/asr/sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25"/>
+  <arg name="cade_asr_fallback_model_type" default="streaming_zipformer"/>
+  <arg name="cade_asr_fallback_model_dir" default="/home/nvidia/audio/models/asr/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17-mobile"/>
+  <arg name="cade_vad_model" default="/home/nvidia/audio/models/asr/silero_vad.onnx"/>
+  <arg name="cade_asr_num_threads" default="1"/>
+  <arg name="asr_tts_cooldown" default="1.2"/>
+  <arg name="asr_pre_roll_sec" default="0.5"/>
+  <arg name="asr_post_roll_sec" default="0.5"/>
+
+  <!-- Voice Layer: ASR. Optional; tests can publish directly to /asr. -->
+  <group if="$(arg enable_asr)">
+    <group if="$(eval arg('voice_asr_type') == 'cade_core')">
+      <node name="asr_node" pkg="cade_voice" type="cade_core_asr_node" output="screen"
+            args="--provider $(arg voice_provider) --num-threads $(arg cade_asr_num_threads) --model-type $(arg cade_asr_model_type) --model-dir $(arg cade_asr_model_dir) --fallback-model-type $(arg cade_asr_fallback_model_type) --fallback-model-dir $(arg cade_asr_fallback_model_dir) --vad-model $(arg cade_vad_model) --tts-cooldown $(arg asr_tts_cooldown) --pre-roll-sec $(arg asr_pre_roll_sec) --post-roll-sec $(arg asr_post_roll_sec)">
+        <env name="CADE_CORE_PYTHON" value="$(arg cade_core_python)"/>
+        <param name="device_name" value="$(arg voice_mic_id)"/>
+      </node>
+    </group>
+
+    <group if="$(eval arg('voice_asr_type') == 'asr_node')">
+      <node name="asr_node" pkg="cade_voice" type="asr_node.py" output="screen"
+            args="--provider $(arg voice_provider) --silero-vad-model $(find cade_voice)/models/silero_vad.onnx --tokens $(find cade_voice)/models/sherpa-onnx-whisper-small.en/small.en-tokens.txt --whisper-encoder $(find cade_voice)/models/sherpa-onnx-whisper-small.en/small.en-encoder.int8.onnx --whisper-decoder $(find cade_voice)/models/sherpa-onnx-whisper-small.en/small.en-decoder.int8.onnx">
+        <param name="device_name" value="$(arg voice_mic_id)"/>
+        <param name="input_gain_db" value="$(arg asr_input_gain_db)"/>
+        <param name="vad_threshold" value="$(arg asr_vad_threshold)"/>
+        <param name="normalize_speech" value="$(arg asr_normalize_speech)"/>
+        <param name="target_rms_dbfs" value="$(arg asr_target_rms_dbfs)"/>
+      </node>
+    </group>
+  </group>
+
+  <!-- Voice Layer: TTS. Optional; /tts can still be echoed without this node. -->
+  <node if="$(arg enable_tts)" name="tts_node" pkg="cade_voice" type="tts_node.py" output="screen"
+        args="--provider $(arg voice_provider) --tts-model $(find cade_voice)/models/kokoro-int8-en-v0_19/model.int8.onnx --tts-tokens $(find cade_voice)/models/kokoro-int8-en-v0_19/tokens.txt --tts-voices $(find cade_voice)/models/kokoro-int8-en-v0_19/voices.bin --tts-data-dir $(find cade_voice)/models/kokoro-int8-en-v0_19/espeak-ng-data">
+    <param name="device_name" value="$(arg voice_speaker_id)"/>
   </node>
 
-  <!-- Voice Layer: TTS -->
-  <node name="tts_node" pkg="cade_voice" type="tts_node.py" output="screen"/>
-
   <!-- Vision Layer: Open Vision Node -->
-  <node name="open_vision" pkg="cade_vision" type="open_vision_node.py" output="screen"
-        args="--model yolov8x-worldv2.pt --device cuda">
+  <node if="$(arg enable_vision)" name="open_vision" pkg="cade_vision" type="open_vision_node.py" output="screen"
+        args="--device cuda">
+  </node>
+
+  <!-- Navigation command bridge. The underlying localization/move_base stack must already be running. -->
+  <node if="$(arg enable_navigation)" name="cade_navigation" pkg="cade_navigation" type="navigation_node.py" output="screen">
+    <param name="base_frame" value="base_link_fusion"/>
+    <param name="named_goal_success_tolerance" value="0.55"/>
+    <param name="reposition_default_distance" value="0.35"/>
+    <param name="reposition_min_distance" value="0.10"/>
+    <param name="reposition_max_distance" value="0.80"/>
+    <param name="reposition_default_angle_deg" value="30.0"/>
+    <param name="reposition_min_angle_deg" value="10.0"/>
+    <param name="reposition_max_angle_deg" value="90.0"/>
+    <param name="reposition_default_timeout" value="8.0"/>
+    <param name="diagnostics_scan_topic" value="/scan"/>
+    <param name="diagnostics_stale_timeout" value="1.0"/>
+    <param name="diagnostics_blocked_clearance" value="0.60"/>
+    <param name="diagnostics_caution_clearance" value="0.90"/>
+    <param name="diagnostics_rear_clearance_required" value="0.75"/>
+    <param name="diagnostics_suggest_distance" value="0.30"/>
+    <param name="diagnostics_suggest_angle_deg" value="30.0"/>
+    <param name="named_locations_file"
+           value="$(find cade_navigation)/config/named_locations.json"/>
+    <rosparam param="named_locations" command="load"
+              file="$(find cade_navigation)/config/named_locations.json"/>
+  </node>
+
+  <!-- Manipulation bridge: GraspNet 5090 + arm control -->
+  <arg name="graspnet_host" default="192.168.1.100"/>
+  <arg name="graspnet_port" default="9090"/>
+  <arg name="arm_enabled" default="false"/>
+
+  <node if="$(arg enable_manipulation)" name="cade_manipulation"
+        pkg="cade_manipulation" type="manipulation_node.py" output="screen">
+    <param name="cmd_topic" value="/cade/task_cmd"/>
+    <param name="status_topic" value="/cade/task_status"/>
+    <param name="graspnet_host" value="$(arg graspnet_host)"/>
+    <param name="graspnet_port" value="$(arg graspnet_port)"/>
+    <param name="arm_enabled" value="$(arg arm_enabled)"/>
   </node>
 
   <!-- Brain Layer: Brain Node (start last to ensure topics are ready) -->
-  <node name="cade_brain" pkg="cade_brain" type="brain_node.py" output="screen"
+  <node if="$(arg enable_brain)" name="cade_brain" pkg="cade_brain" type="brain_node.py" output="screen"
         launch-prefix="bash -c 'sleep 2; exec $0 $@'">
     <param name="prompt_mode" value="default"/>
+    <param name="max_react_loops" value="30"/>
   </node>
 
 </launch>

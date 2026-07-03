@@ -1,11 +1,18 @@
 """
-Posture & Gesture Analyzer - 基于 MediaPipe Pose 的姿态和手势识别
+Posture & Gesture Analyzer - 基于 MediaPipe Pose + LightGBM 的姿态和手势识别
 
 职责：
 - 接收人框裁剪图，输出 posture（standing/sitting/lying/unknown）
   和 gesture（waving/raising_left_arm/raising_right_arm/pointing_left/pointing_right/none/unknown）
-- 维护每人 30 帧环形缓冲区，支持跨帧挥手检测（两路 OR：前臂摆动 + 手腕旋转）
+- 维护每人独立的 LightGBM gesture 投票/窗口状态，支持动态 waving 识别
 """
+
+import os
+import threading
+
+os.environ.setdefault("GLOG_minloglevel", "2")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 import cv2
 import numpy as np
@@ -20,9 +27,8 @@ except Exception as exc:
     MEDIAPIPE_AVAILABLE = False
     MEDIAPIPE_IMPORT_ERROR = exc
 
-from .rules.gesture import classify_static_gesture, judge_all_temporal_gestures
-from .rules.posture import classify_posture_3d
-from .temporal_buffer import RingBuffer
+from .gesture_model import LightGBMGestureClassifier
+from .posture_model import LightGBMPostureClassifier
 
 
 class PostureGestureAnalyzer:
@@ -43,7 +49,20 @@ class PostureGestureAnalyzer:
         self.available = MEDIAPIPE_AVAILABLE
         self.mp_pose = None
         self.mp_hands = None
-        self.ring_buffer = RingBuffer(capacity=30)
+        self._pose_lock = threading.Lock()
+        self._hands_lock = threading.Lock()
+        self.posture_classifier = LightGBMPostureClassifier()
+        if not self.posture_classifier.available:
+            print(
+                "LightGBM posture classifier unavailable: "
+                f"{self.posture_classifier.load_error}"
+            )
+        self.gesture_classifier = LightGBMGestureClassifier()
+        if not self.gesture_classifier.available:
+            print(
+                "LightGBM gesture classifier unavailable: "
+                f"{self.gesture_classifier.load_error}"
+            )
 
         # 挥手检测阈值（可调参数）
         self.T_FOREARM = T_FOREARM
@@ -54,8 +73,10 @@ class PostureGestureAnalyzer:
         if self.available:
             self.mp_pose = mp.solutions.pose
             self.pose = self.mp_pose.Pose(
-                static_image_mode=False,
-                model_complexity=1,
+                static_image_mode=True,
+                model_complexity=0,
+                enable_segmentation=False,
+                smooth_landmarks=False,
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5,
             )
@@ -73,7 +94,12 @@ class PostureGestureAnalyzer:
         对单个人框裁剪图跑 MediaPipe Pose，返回原始关键点（不做分类）。
 
         Returns:
-            {"landmarks": [(x,y,score), ... 33 keypoints], "img_h": int, "img_w": int}
+            {
+                "landmarks": [(x,y,visibility), ... 33 keypoints],
+                "landmark_z": [z, ... 33 keypoints],
+                "img_h": int,
+                "img_w": int,
+            }
             或 None（如果 Pose 不可用或未检测到人）。
         """
         if not self.available or self.pose is None or person_crop.size == 0:
@@ -82,13 +108,20 @@ class PostureGestureAnalyzer:
         if h < 30 or w < 30:
             return None
         rgb = cv2.cvtColor(person_crop, cv2.COLOR_BGR2RGB)
-        results = self.pose.process(rgb)
+        with self._pose_lock:
+            results = self.pose.process(rgb)
         if results.pose_landmarks is None:
             return None
         landmarks = [
             (lm.x, lm.y, lm.visibility) for lm in results.pose_landmarks.landmark
         ]
-        return {"landmarks": landmarks, "img_h": h, "img_w": w}
+        landmark_z = [lm.z for lm in results.pose_landmarks.landmark]
+        return {
+            "landmarks": landmarks,
+            "landmark_z": landmark_z,
+            "img_h": h,
+            "img_w": w,
+        }
 
     def process_hands(self, person_crop: np.ndarray) -> dict:
         """
@@ -110,9 +143,12 @@ class PostureGestureAnalyzer:
             return result
 
         rgb = cv2.cvtColor(person_crop, cv2.COLOR_BGR2RGB)
-        hands_results = self.hands.process(rgb)
+        with self._hands_lock:
+            hands_results = self.hands.process(rgb)
 
-        if hands_results.multi_hand_landmarks:
+        if (hands_results.multi_hand_landmarks is not None) and (
+            hands_results.multi_handedness is not None
+        ):
             for idx, hand_lms in enumerate(hands_results.multi_hand_landmarks):
                 handedness = hands_results.multi_handedness[idx]
                 label = handedness.classification[0].label  # "Left" or "Right"
@@ -127,6 +163,8 @@ class PostureGestureAnalyzer:
                     "index_tip": index_tip,
                     "landmarks": landmarks,
                 }
+        else:
+            return None
 
         return result
 
@@ -137,99 +175,67 @@ class PostureGestureAnalyzer:
         hands_data: dict = None,
         with_temporal: bool = True,
         keypoints_3d: dict = None,
+        timestamp: float = None,
     ) -> dict:
         """
         从预计算的 landmarks 做分类 + 角度计算（不再跑模型推理）。
 
         Args:
-            pose_data: process_pose() 的输出 {"landmarks": [...], "img_h": h, "img_w": w}
+            pose_data: process_pose() 的输出，包含 landmarks、landmark_z、img_h/img_w。
             person_id:  时序挥手检测用的人物 ID（with_temporal=True 时必传）
-            hands_data: process_hands() 的输出
+            hands_data: 保留旧调用签名；LightGBM 手势模型不使用 MediaPipe Hands。
             with_temporal: 是否跑时序挥手检测
-            keypoints_3d: {23: (x,y,z), 24: (x,y,z), ...} 深度图提取的 3D 关键点
+            keypoints_3d: 保留旧调用签名；LightGBM 姿态模型不使用该参数。
+            timestamp: 当前帧时间戳，用于 waving 窗口特征。
 
         Returns:
             同 analyze() 或 analyze_with_temporal()
         """
         if pose_data is None:
-            return self._unknown_result()
+            result = self._unknown_result()
+            gesture_result = self.gesture_classifier.predict(
+                None,
+                person_id=person_id,
+                timestamp=timestamp,
+                with_temporal=with_temporal,
+            )
+            result.update(gesture_result)
+            return result
 
         landmarks = pose_data["landmarks"]
-        h, w = pose_data["img_h"], pose_data["img_w"]
 
-        posture, _ = classify_posture_3d(landmarks, w, h, keypoints_3d)
-        gesture, elbow_l, elbow_r, wrist_l, wrist_r = classify_static_gesture(
-            landmarks, h, w, hands_data
+        posture_result = self.posture_classifier.predict(pose_data)
+        posture = posture_result.get("posture", "unknown")
+        gesture_result = self.gesture_classifier.predict(
+            pose_data,
+            person_id=person_id,
+            timestamp=timestamp,
+            with_temporal=with_temporal,
         )
 
         result = {
             "landmarks": landmarks,
             "posture": posture,
-            "gesture": gesture,
-            "elbow_angle_left": elbow_l,
-            "elbow_angle_right": elbow_r,
-            "wrist_angle_left": wrist_l,
-            "wrist_angle_right": wrist_r,
+            "posture_confidence": posture_result.get("confidence", 0.0),
+            "posture_probabilities": posture_result.get("probabilities", {}),
+            "gesture": gesture_result.get("gesture", "unknown"),
+            "elbow_angle_left": None,
+            "elbow_angle_right": None,
+            "wrist_angle_left": None,
+            "wrist_angle_right": None,
         }
-
-        if with_temporal and person_id is not None:
-            result = self._apply_temporal(result, person_id)
-
+        result.update(gesture_result)
         return result
 
-    def _apply_temporal(self, result: dict, person_id) -> dict:
-        """
-        全动作时序大一统整合总线
-        """
-        # 1. 始终推入缓冲区更新时序
-        self.ring_buffer.push_forearm(
-            person_id, result["elbow_angle_left"], result["elbow_angle_right"]
-        )
-        self.ring_buffer.push_wrist(
-            person_id, result["wrist_angle_left"], result["wrist_angle_right"]
-        )
-
-        # 2. 统一提取两手肢体的最新方差特征
-        variances = {
-            "fa_l": self.ring_buffer.get_forearm_variance(
-                person_id, "left", jump_threshold=self.JUMP_THRESHOLD
-            ),
-            "fa_r": self.ring_buffer.get_forearm_variance(
-                person_id, "right", jump_threshold=self.JUMP_THRESHOLD
-            ),
-            "wr_l": self.ring_buffer.get_wrist_variance(
-                person_id, "left", jump_threshold=self.JUMP_THRESHOLD
-            ),
-            "wr_r": self.ring_buffer.get_wrist_variance(
-                person_id, "right", jump_threshold=self.JUMP_THRESHOLD
-            ),
-        }
-        thresholds = {
-            "T_FOREARM": self.T_FOREARM,
-            "T_WRIST": self.T_WRIST,
-            "SHOULDER_OFFSET": self.SHOULDER_OFFSET,
-        }
-
-        final_gesture, debug_info = judge_all_temporal_gestures(
-            raw_gesture=result["gesture"],  # 这里传入的是刚刚初筛出来的 maybe_xxx 状态
-            variances=variances,
-            landmarks=result["landmarks"],
-            thresholds=thresholds,
-        )
-
-        # 4. 用时序判定的最终手势，覆盖掉单帧初筛的不稳定状态
-        result["gesture"] = final_gesture
-
-        # 挂载调试方差
-        result.update(debug_info)
-        return result
+    def clear_temporal(self):
+        """清空每个 track 的手势投票和 waving 窗口状态。"""
+        self.gesture_classifier.clear()
 
     def analyze(self, person_crop: np.ndarray, hands_data: dict = None) -> dict:
         """
         对单个人框裁剪图做姿态+静态手势分析（便捷方法，内部跑 Pose 模型）。
 
-        如需并行 Pose + Hands，请使用 process_pose() + process_hands() +
-        analyze_from_landmarks() 替代。
+        如需并行 Pose，请使用 process_pose() + analyze_from_landmarks() 替代。
         """
         return self.analyze_from_landmarks(
             self.process_pose(person_crop), hands_data=hands_data, with_temporal=False
@@ -241,7 +247,7 @@ class PostureGestureAnalyzer:
         """
         包含时序挥手检测的完整分析（便捷方法，内部跑 Pose 模型）。
 
-        如需并行 Pose + Hands，请使用 process_pose() + process_hands() +
+        如需并行 Pose，请使用 process_pose() +
         analyze_from_landmarks(with_temporal=True) 替代。
         """
         return self.analyze_from_landmarks(
@@ -256,6 +262,8 @@ class PostureGestureAnalyzer:
         return {
             "landmarks": [],
             "posture": "unknown",
+            "posture_confidence": 0.0,
+            "posture_probabilities": {},
             "gesture": "unknown",
             "elbow_angle_left": None,
             "elbow_angle_right": None,

@@ -6,30 +6,35 @@ Uses SenseVoice/Whisper/Paraformer/Transducer models with Silero VAD.
 Publishes recognized text to /asr topic (std_msgs/String).
 """
 
+import os
+import sys
 import wave
-import sherpa_onnx
-import numpy as np
+import argparse
+import inspect
 import queue
 from pathlib import Path
-import sys
-import argparse
-import os
 
 import rospy
 from std_msgs.msg import String
 import rospkg
-
-try:
-    import sounddevice as sd
-except ImportError:
-    print("Please install sounddevice first. You can use")
-    print()
-    print("  pip install sounddevice")
-    print()
-    sys.exit(-1)
+import numpy as np
 
 
-pkg_path = rospkg.RosPack().get_path('asr_tts')
+def _package_path() -> str:
+    return rospkg.RosPack().get_path("cade_voice")
+
+
+def _add_local_sherpa_runtime() -> None:
+    runtime_path = os.path.join(_package_path(), "src")
+    if os.path.isdir(os.path.join(runtime_path, "sherpa_onnx")):
+        sys.path.insert(0, runtime_path)
+
+
+_add_local_sherpa_runtime()
+import sherpa_onnx  # noqa: E402
+
+
+pkg_path = _package_path()
 
 
 def get_args():
@@ -99,7 +104,7 @@ def get_args():
     parser.add_argument(
         "--provider",
         type=str,
-        default="cuda",
+        default="cpu",
         choices=["cpu", "cuda", "coreml"],
         help="Inference provider: cpu, cuda, coreml",
     )
@@ -232,6 +237,33 @@ def get_args():
         help="Folder path to save recorded audio segments.",
     )
 
+    parser.add_argument(
+        "--input-gain-db",
+        type=float,
+        default=0.0,
+        help="Pre-VAD microphone gain in dB. Use a small value for far-field speech.",
+    )
+
+    parser.add_argument(
+        "--vad-threshold",
+        type=float,
+        default=0.5,
+        help="Silero VAD speech probability threshold.",
+    )
+
+    parser.add_argument(
+        "--normalize-speech",
+        action="store_true",
+        help="Normalize each VAD speech segment before ASR decoding.",
+    )
+
+    parser.add_argument(
+        "--target-rms-dbfs",
+        type=float,
+        default=-22.0,
+        help="Target RMS for --normalize-speech.",
+    )
+
     return parser.parse_known_args()
 
 
@@ -241,6 +273,64 @@ def assert_file_exists(filename: str):
         "Please refer to "
         "https://k2-fsa.github.io/sherpa/onnx/pretrained_models/index.html to download it"
     )
+
+
+def call_with_supported_kwargs(func, **kwargs):
+    """Call sherpa_onnx helpers across versions with slightly different signatures."""
+    supported = inspect.signature(func).parameters
+    return func(**{key: value for key, value in kwargs.items() if key in supported})
+
+
+def import_sounddevice():
+    try:
+        import sounddevice as sd  # noqa: PLC0415
+    except ImportError:
+        print("Please install sounddevice first. You can use")
+        print()
+        print("  pip install sounddevice")
+        print()
+        sys.exit(-1)
+
+    return sd
+
+
+def is_default_device_name(target_name: str) -> bool:
+    return str(target_name or "").strip().lower() in ("", "default", "auto")
+
+
+def log_available_audio_devices(devices, direction: str) -> None:
+    channel_key = "max_input_channels" if direction == "input" else "max_output_channels"
+    rospy.logerr("Available %s devices:", direction)
+    for i, device in enumerate(devices):
+        if device[channel_key] > 0:
+            rospy.logerr("  [%d] %s", i, device["name"])
+
+
+def resolve_input_device(sd, devices, target_name):
+    """Resolve default/index/name-fragment microphone selection."""
+    if is_default_device_name(target_name):
+        try:
+            device_info = sd.query_devices(kind="input")
+            return None, device_info, "system default input"
+        except Exception:
+            for i, device in enumerate(devices):
+                if device["max_input_channels"] > 0:
+                    return i, device, f"[{i}] {device['name']}"
+            return None, None, ""
+
+    target = str(target_name).strip()
+    if target.isdigit():
+        index = int(target)
+        if 0 <= index < len(devices) and devices[index]["max_input_channels"] > 0:
+            return index, devices[index], f"[{index}] {devices[index]['name']}"
+        return None, None, ""
+
+    target_lower = target.lower()
+    for i, device in enumerate(devices):
+        if target_lower in device["name"].lower() and device["max_input_channels"] > 0:
+            return i, device, f"[{i}] {device['name']}"
+
+    return None, None, ""
 
 
 def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
@@ -323,11 +413,14 @@ def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
         assert len(args.moonshine_uncached_decoder) == 0, args.moonshine_uncached_decoder
         assert len(args.moonshine_cached_decoder) == 0, args.moonshine_cached_decoder
 
-        recognizer = sherpa_onnx.OfflineRecognizer.from_whisper(
+        recognizer = call_with_supported_kwargs(
+            sherpa_onnx.OfflineRecognizer.from_whisper,
             encoder=args.whisper_encoder,
             decoder=args.whisper_decoder,
             tokens=args.tokens,
             num_threads=args.num_threads,
+            sample_rate=args.sample_rate,
+            feature_dim=args.feature_dim,
             decoding_method=args.decoding_method,
             debug=args.debug,
             language=args.whisper_language,
@@ -362,6 +455,37 @@ def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
     return recognizer
 
 
+def db_to_gain(db: float) -> float:
+    return float(10 ** (db / 20.0))
+
+
+def apply_gain(samples, gain_db: float):
+    samples = np.asarray(samples, dtype=np.float32)
+    if abs(gain_db) < 1e-6:
+        return samples
+    return np.clip(samples * db_to_gain(gain_db), -1.0, 1.0)
+
+
+def normalize_rms(samples, target_dbfs: float = -22.0, max_gain_db: float = 18.0):
+    """Normalize one speech segment with a limiter to avoid clipping."""
+    samples = np.asarray(samples, dtype=np.float32)
+    if len(samples) == 0:
+        return samples
+
+    rms = float(np.sqrt(np.mean(samples ** 2)))
+    if rms <= 1e-6:
+        return samples
+
+    target_rms = db_to_gain(target_dbfs)
+    gain = min(target_rms / rms, db_to_gain(max_gain_db))
+    peak_after_gain = float(np.max(np.abs(samples * gain)))
+
+    if peak_after_gain > 0.98:
+        gain *= 0.98 / peak_after_gain
+
+    return np.clip(samples * gain, -1.0, 1.0)
+
+
 class ASRNode:
     """ROS node for VAD-based offline ASR."""
 
@@ -371,29 +495,26 @@ class ASRNode:
 
     def run(self):
         """Main loop - runs on main thread using PortAudio callback + queue."""
+        sd = import_sounddevice()
         devices = sd.query_devices()
         if len(devices) == 0:
             rospy.logerr("No audio devices found!")
             sys.exit(1)
 
         target_name = rospy.get_param("~device_name", "default")
-        rospy.loginfo(f"Trying to lock audio device: \"{target_name}\"")
+        rospy.loginfo(f"Trying to lock audio input device: \"{target_name}\"")
 
-        default_input_device_idx = None
-        for i, d in enumerate(devices):
-            if target_name in d['name'] and d['max_input_channels'] > 0:
-                default_input_device_idx = i
-                break
+        input_device_idx, input_device_info, input_device_label = resolve_input_device(
+            sd, devices, target_name
+        )
 
-        if default_input_device_idx is None:
+        if input_device_info is None:
             rospy.logerr(f"Cannot find device: \"{target_name}\"")
             rospy.logerr("Run 'python3 -m sounddevice' to check device names.")
+            log_available_audio_devices(devices, "input")
             sys.exit(1)
 
-        print(
-            f"Microphone locked: [{default_input_device_idx}] "
-            f"{devices[default_input_device_idx]['name']}"
-        )
+        print(f"Microphone locked: {input_device_label}")
 
         args, _ = get_args()
         assert_file_exists(args.tokens)
@@ -401,7 +522,7 @@ class ASRNode:
 
         assert args.num_threads > 0, args.num_threads
 
-        device_sample_rate = int(devices[default_input_device_idx]['default_samplerate'])
+        device_sample_rate = int(input_device_info['default_samplerate'])
         target_sample_rate = args.sample_rate
 
         if device_sample_rate != target_sample_rate:
@@ -410,9 +531,23 @@ class ASRNode:
         print("Creating recognizer. Please wait...")
         recognizer = create_recognizer(args)
 
+        input_gain_db = float(rospy.get_param("~input_gain_db", args.input_gain_db))
+        vad_threshold = float(rospy.get_param("~vad_threshold", args.vad_threshold))
+        normalize_speech = bool(rospy.get_param("~normalize_speech", args.normalize_speech))
+        target_rms_dbfs = float(rospy.get_param("~target_rms_dbfs", args.target_rms_dbfs))
+
+        print(
+            "ASR audio preprocessing: "
+            f"input_gain_db={input_gain_db:.1f}, "
+            f"vad_threshold={vad_threshold:.2f}, "
+            f"normalize_speech={normalize_speech}, "
+            f"target_rms_dbfs={target_rms_dbfs:.1f}"
+        )
+
         config = sherpa_onnx.VadModelConfig()
         config.silero_vad.model = args.silero_vad_model
         config.silero_vad.min_silence_duration = 0.25
+        config.silero_vad.threshold = vad_threshold
         config.sample_rate = target_sample_rate
 
         window_size = config.silero_vad.window_size
@@ -449,6 +584,7 @@ class ASRNode:
             """Save audio data to WAV file."""
             if isinstance(audio_data, list):
                 audio_data = np.array(audio_data)
+            audio_data = np.clip(np.asarray(audio_data, dtype=np.float32), -1.0, 1.0)
             audio_int16 = (audio_data * 32767).astype(np.int16)
             with wave.open(str(filepath), 'wb') as f:
                 f.setnchannels(1)
@@ -461,6 +597,7 @@ class ASRNode:
             all_audio = np.concatenate([
                 np.array(s) if isinstance(s, list) else s for s in samples_list
             ])
+            all_audio = np.clip(np.asarray(all_audio, dtype=np.float32), -1.0, 1.0)
             audio_int16 = (all_audio * 32767).astype(np.int16)
             with wave.open(str(filepath), 'wb') as f:
                 f.setnchannels(1)
@@ -482,7 +619,7 @@ class ASRNode:
         # --- Main processing loop ---
         try:
             with sd.InputStream(
-                device=default_input_device_idx,
+                device=input_device_idx,
                 channels=1,
                 callback=audio_callback,
                 samplerate=device_sample_rate,
@@ -500,6 +637,8 @@ class ASRNode:
                     if device_sample_rate != target_sample_rate:
                         samples = resample_audio(samples, device_sample_rate, target_sample_rate)
 
+                    samples = apply_gain(samples, input_gain_db)
+
                     if all_samples is not None:
                         all_samples.append(samples)
 
@@ -514,6 +653,9 @@ class ASRNode:
 
                     if speech_segments:
                         speech_samples = speech_segments.pop(0)
+                        if normalize_speech:
+                            speech_samples = normalize_rms(speech_samples, target_rms_dbfs)
+
                         stream = recognizer.create_stream()
                         stream.accept_waveform(target_sample_rate, speech_samples)
                         recognizer.decode_stream(stream)

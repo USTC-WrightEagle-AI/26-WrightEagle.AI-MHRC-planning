@@ -77,6 +77,8 @@ def _compute_body_angles_3d(keypoints_3d: dict, v_spine_global) -> dict:
     """
     【数据提取与计算函数】
     计算 3D 空间下坐姿判定通道 A 所需的所有纯几何参数。
+    - keypoints_3d 是从 mediapipe pose keypoints 后处理得到的关键点坐标
+    - v_spine_global 为肩髋向量代表躯干向量
     """
     res = {
         "lean_angle": None,
@@ -86,14 +88,8 @@ def _compute_body_angles_3d(keypoints_3d: dict, v_spine_global) -> dict:
         "right_thigh_ratio": None,
     }
 
-    if v_spine_global is None:
-        return res
-
-    vsg_norm = np.linalg.norm(v_spine_global)
-    if vsg_norm < 1e-6:
-        return res
-
     # 1. 计算脊柱偏离竖直轴的绝对倾斜角
+    vsg_norm = np.linalg.norm(v_spine_global)
     cos_lean = abs(v_spine_global[1]) / vsg_norm
     res["lean_angle"] = math.degrees(math.acos(np.clip(cos_lean, 0.0, 1.0)))
 
@@ -140,8 +136,8 @@ def _compute_sitting_features_b(
     统一抽取 3D 垂直落差特征与 2D 物理像素下的透视缩水特征。
     """
     features = {
-        "thigh_drop_3d": None,
-        "calf_drop_3d": None,
+        "thigh_drop_3d": None,  # 髋膝高度差
+        "calf_drop_3d": None,  # 膝踝落差（小腿下垂度）
         "thigh_torso_ratio_2d": None,
     }
 
@@ -182,32 +178,6 @@ def _compute_sitting_features_b(
     return features
 
 
-def _classify_posture_2d_fallback(landmarks):
-    """
-    当缺乏 3D 深度数据时的 2D 纯几何兜底分类器。
-
-    这个分支只依赖 MediaPipe 的 2D 关键点，抗透视能力弱，所以置信度整体
-    低于 3D 分支。它主要保证非 RealSense 或深度缺失时仍能给出可用结果。
-    """
-    left_angle = _leg_angle_2d(landmarks, LEFT_HIP, LEFT_KNEE, LEFT_ANKLE)
-    right_angle = _leg_angle_2d(landmarks, RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE)
-    angles = [a for a in (left_angle, right_angle) if a is not None]
-
-    if not angles:
-        return "unknown", 0.0
-
-    # 左右腿只要有一侧可用就参与平均；这比要求双腿全部可见更适合遮挡场景。
-    # 阈值是经验规则，必须和 `_leg_angle_2d()` 的角度定义绑定理解。
-    avg = sum(angles) / len(angles)
-    if avg > 140:
-        return "standing", 0.8
-    elif 70 < avg < 125:
-        return "sitting", 0.8
-    elif avg < 30:
-        return "lying", 0.7
-    return "unknown", 0.3
-
-
 # ==================== 2. 3D 核心几何子规则隔离（易改区） ====================
 
 
@@ -217,7 +187,8 @@ def is_torso_vertical_3d(keypoints_3d: dict):
 
     返回:
         (torso_ok, v_spine_global)
-
+    - torso_ok 代表躯干是否竖直
+    - v_spine_global 为肩髋向量代表躯干向量
     判定思路:
     1. 如果双肩 + 双髋都存在，用肩线和脊柱方向构造躯干平面；
        平面法向量与重力方向接近垂直时，说明躯干面大致竖直。
@@ -225,6 +196,7 @@ def is_torso_vertical_3d(keypoints_3d: dict):
 
     `v_spine_global` 会继续给 sitting 规则复用，避免重复计算。
     """
+    # s 代表肩膀，h 代表髋
     ls, rs, lh, rh = (
         keypoints_3d.get(11),
         keypoints_3d.get(12),
@@ -271,16 +243,17 @@ def is_torso_vertical_3d(keypoints_3d: dict):
     return False, None
 
 
-def check_sitting_3d(valid_angles, body_angles_3d: dict, features_b: dict) -> bool:
+def check_sitting_3d(
+    right_leg_angle, left_leg_angle, body_angles_3d: dict, features_b: dict
+) -> bool:
     """
     【完全体 - 坐姿规则判定模块】
     摒弃所有底层复杂的坐标和距离运算，只专注于三大规则分支的互斥与联动。
     """
     # 🌟 规则零：免死金牌一票否决
     # 如果 2D 像素角度算出来你双腿笔直，无论 3D 深度怎么晃动，一律放行站立，绝不触发坐姿拦截。
-    if valid_angles and len(valid_angles) > 0:
-        if any(a >= 150 for a in valid_angles):
-            return False
+    if any(a is not None and a >= 150 for a in (right_leg_angle, left_leg_angle)):
+        return False
 
     # ==========================================
     # 🚀 通道 A：斜向大角度后靠/前倾规则过滤器
@@ -291,12 +264,12 @@ def check_sitting_3d(valid_angles, body_angles_3d: dict, features_b: dict) -> bo
         if body_angles_3d["left_joint_angle"] is not None:
             if 60 <= body_angles_3d["left_joint_angle"] <= 125:
                 if body_angles_3d["left_thigh_ratio"] < 0.642:
-                    return True
+                    return "channel A sitting"
         # 右侧校验
         if body_angles_3d["right_joint_angle"] is not None:
             if 60 <= body_angles_3d["right_joint_angle"] <= 125:
                 if body_angles_3d["right_thigh_ratio"] < 0.642:
-                    return True
+                    return "channel A sitting"
 
     # ==========================================
     # 🚀 通道 B：物理高度差与 2D 投影缩水规则过滤器
@@ -311,7 +284,7 @@ def check_sitting_3d(valid_angles, body_angles_3d: dict, features_b: dict) -> bo
         if thigh_drop_3d < 0.10 and calf_drop_3d > 0.15:
             # 特征3：大腿在 2D 像素投影上相对躯干极度变短（正面透视缩水比例 < 0.42）
             if thigh_torso_ratio_2d is not None and thigh_torso_ratio_2d < 0.42:
-                return True
+                return "channel B sitting"
 
     return False
 
@@ -412,16 +385,14 @@ def classify_posture_3d(landmarks, img_width, img_height, keypoints_3d: dict = N
         keypoints_3d: 由上游深度图采样得到的 3D 关键点字典。
 
     决策顺序说明:
-    - 无 3D 时走 2D fallback。
-    - 有 3D 时先判 sitting，因为坐姿特征相对明确且容易被站立规则吞掉。
+    - 先判 sitting，因为坐姿特征相对明确且容易被站立规则吞掉。
     - 再判 standing，并在 standing 命中后用 lying 做一次高度压缩反查。
     - 最后用 lying 兜底，捕获未满足坐/站但高度明显压缩的倒地状态。
     """
-    # 1. 2D 兜底分支拦截
-    if not keypoints_3d:
-        return _classify_posture_2d_fallback(landmarks)
+    if not keypoints_3d or not any(p is not None for p in keypoints_3d.values()):
+        return "unknown", 0.0
 
-    # 2. 预计算跨模块复用的几何基础特征
+    # 预计算跨模块复用的几何基础特征
     # torso_ok 用作 standing 的前置条件；v_spine_global 供 sitting 通道 A 复用。
     # 左右腿 2D 角度既用于 2D fallback，也作为 3D standing 的轻量运动学约束。
     torso_ok, v_spine_global = is_torso_vertical_3d(keypoints_3d)
@@ -444,8 +415,11 @@ def classify_posture_3d(landmarks, img_width, img_height, keypoints_3d: dict = N
     # 3. 三大姿态独立规则处理器并行诊断（按优先级或排他逻辑拦截）
 
     # 优先级 A：坐姿拦截（双通道几何条件非常明确，不易误触）
-    if check_sitting_3d(landmarks, keypoints_3d, body_angles_3d, img_width, img_height):
-        return "sitting", 0.85
+    sitting_result = check_sitting_3d(
+        right_leg_angle, left_leg_angle, body_angles_3d, features_b
+    )
+    if sitting_result:
+        return sitting_result, 0.85
 
     # # 优先级 B：站立拦截（依赖高度链与直立刚性约束）
     # if check_standing_3d(keypoints_3d, torso_ok, left_angle, right_angle):
@@ -453,10 +427,11 @@ def classify_posture_3d(landmarks, img_width, img_height, keypoints_3d: dict = N
     #     if check_lying_3d(keypoints_3d):
     #         return "lying", 0.85
     #     return "standing", 0.8
-    if check_standing_3d(keypoints_3d, torso_ok, left_leg_angle, right_leg_angle):
-        return check_standing_3d(
-            keypoints_3d, torso_ok, left_leg_angle, right_leg_angle
-        ), 0.8
+    standing_result = check_standing_3d(
+        keypoints_3d, torso_ok, left_leg_angle, right_leg_angle
+    )
+    if standing_result:
+        return standing_result, 0.8
 
     # 优先级 C：防漏跌倒/平躺拦截（未能通过严格站立和坐姿、但高度极度压缩的特殊状态兜底）
     if check_lying_3d(keypoints_3d):

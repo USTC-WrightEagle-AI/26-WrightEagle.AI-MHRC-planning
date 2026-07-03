@@ -1,0 +1,113 @@
+{
+  "feature_count": 36,
+  "feature_columns": [
+    "left_shoulder_x",
+    "left_shoulder_y",
+    "left_shoulder_z",
+    "right_shoulder_x",
+    "right_shoulder_y",
+    "right_shoulder_z",
+    "left_elbow_x",
+    "left_elbow_y",
+    "left_elbow_z",
+    "right_elbow_x",
+    "right_elbow_y",
+    "right_elbow_z",
+    "left_wrist_x",
+    "left_wrist_y",
+    "left_wrist_z",
+    "right_wrist_x",
+    "right_wrist_y",
+    "right_wrist_z",
+    "left_index_x",
+    "left_index_y",
+    "left_index_z",
+    "right_index_x",
+    "right_index_y",
+    "right_index_z",
+    "left_pinky_x",
+    "left_pinky_y",
+    "left_pinky_z",
+    "right_pinky_x",
+    "right_pinky_y",
+    "right_pinky_z",
+    "left_thumb_x",
+    "left_thumb_y",
+    "left_thumb_z",
+    "right_thumb_x",
+    "right_thumb_y",
+    "right_thumb_z"
+  ],
+  "labels": [
+    "raising_left",
+    "raising_right",
+    "pointing_left",
+    "pointing_right",
+    "unknown"
+  ],
+  "label_ids": {
+    "raising_left": 0,
+    "raising_right": 1,
+    "pointing_left": 2,
+    "pointing_right": 3,
+    "unknown": 4
+  },
+  "pose_landmarks": [
+    {
+      "name": "left_shoulder",
+      "mediapipe_index": 11
+    },
+    {
+      "name": "right_shoulder",
+      "mediapipe_index": 12
+    },
+    {
+      "name": "left_elbow",
+      "mediapipe_index": 13
+    },
+    {
+      "name": "right_elbow",
+      "mediapipe_index": 14
+    },
+    {
+      "name": "left_wrist",
+      "mediapipe_index": 15
+    },
+    {
+      "name": "right_wrist",
+      "mediapipe_index": 16
+    },
+    {
+      "name": "left_index",
+      "mediapipe_index": 19
+    },
+    {
+      "name": "right_index",
+      "mediapipe_index": 20
+    },
+    {
+      "name": "left_pinky",
+      "mediapipe_index": 17
+    },
+    {
+      "name": "right_pinky",
+      "mediapipe_index": 18
+    },
+    {
+      "name": "left_thumb",
+      "mediapipe_index": 21
+    },
+    {
+      "name": "right_thumb",
+      "mediapipe_index": 22
+    }
+  ],
+  "preprocess": {
+    "mode": "yolo_person_crop_mediapipe_pose",
+    "coordinate_space": "mediapipe_normalized_crop_coordinates",
+    "nan_visibility_threshold": 0.5,
+    "box_margin": 0.12,
+    "yolo_conf": 0.25,
+    "imgsz": 320
+  }
+}

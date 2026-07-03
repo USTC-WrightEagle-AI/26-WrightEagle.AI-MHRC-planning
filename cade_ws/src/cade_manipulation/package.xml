@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>cade_manipulation</name>
+  <version>0.1.0</version>
+  <description>CADE Manipulation - grasp execution bridge (GraspNet + arm control)</description>
+  <maintainer email="huyanshen@example.com">huyanshen</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+
+  <export>
+  </export>
+</package>

@@ -27,7 +27,7 @@ import cade_brain.schemas.vision_actions as vis_mods
 for module in [nav_mods, vis_mods]:
     for name, obj in inspect.getmembers(module, inspect.isclass):
         if issubclass(obj, BaseAction) and obj is not BaseAction:
-            # 自动提取你在 Pydantic 类里锁定的 type 字面量默认值（例如 "goToLoc" 或 "clothes_recognition"）
+            # 自动提取你在 Pydantic 类里锁定的 type 字面量默认值（例如 "navigation" 或 "observe_people"）
             try:
                 action_type = obj.model_fields["type"].default
             except AttributeError:

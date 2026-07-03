@@ -1,6 +1,7 @@
 """Information lookup task executors."""
 
 import math
+import time
 
 from .base_task import BaseTask
 
@@ -8,20 +9,27 @@ from .base_task import BaseTask
 class InfoTask(BaseTask):
     """Executor for get_person_info and get_nearest_person."""
 
+    POLL_INTERVAL = 0.1
+
     def execute(self, cmd_dict):
         action = cmd_dict.get("action", "")
         if action == "get_nearest_person":
-            self._execute_nearest_person()
+            self._execute_nearest_person(cmd_dict)
             return
         self._execute_person_info(cmd_dict)
 
     def _execute_person_info(self, cmd_dict):
-        if not self.should_continue():
-            return
-
-        candidates = self.node.get_latest_detections()
         attributes = self.extract_attributes(cmd_dict)
-        candidates = self.filter_candidates(candidates, attributes)
+        timeout = float(cmd_dict.get("timeout", 1.0))
+        start_time = time.time()
+        candidates = []
+
+        while self.should_continue() and time.time() - start_time < timeout:
+            candidates = self.node.get_latest_detections()
+            candidates = self.filter_candidates(candidates, attributes)
+            if candidates:
+                break
+            time.sleep(self.POLL_INTERVAL)
 
         result = {
             "type": "detection_info",
@@ -40,14 +48,21 @@ class InfoTask(BaseTask):
         if self.should_continue() and self.node.finish_task(self):
             self.node._publish_status("SUCCESS", result=result)
 
-    def _execute_nearest_person(self):
-        if not self.should_continue():
-            return
+    def _execute_nearest_person(self, cmd_dict):
+        timeout = float(cmd_dict.get("timeout", 1.0))
+        start_time = time.time()
+        persons = []
+        while self.should_continue() and time.time() - start_time < timeout:
+            candidates = self.node.get_latest_detections()
+            persons = [
+                obj
+                for obj in candidates
+                if obj.get("class_name", "").lower() == "person"
+            ]
+            if persons:
+                break
+            time.sleep(self.POLL_INTERVAL)
 
-        candidates = self.node.get_latest_detections()
-        persons = [
-            obj for obj in candidates if obj.get("class_name", "").lower() == "person"
-        ]
         if not persons:
             if self.should_continue() and self.node.finish_task(self):
                 self.node._publish_status("FAILED", error="No person detected")

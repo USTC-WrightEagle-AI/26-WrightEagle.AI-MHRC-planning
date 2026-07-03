@@ -1,0 +1,26 @@
+<launch>
+  <!-- ========================================================= -->
+  <!-- CADE Manipulation Node                                     -->
+  <!--                                                            -->
+  <!-- Bridges /cade/task_cmd grasp actions to the GraspNet       -->
+  <!-- 5090 server and executes them on the robot arm.            -->
+  <!--                                                            -->
+  <!-- Actions handled: bringMeObj, object_dump                   -->
+  <!-- ========================================================= -->
+
+  <arg name="graspnet_host" default="192.168.1.100"/>
+  <arg name="graspnet_port" default="9090"/>
+  <arg name="graspnet_timeout" default="10.0"/>
+  <arg name="arm_enabled" default="false"/>
+
+  <node name="cade_manipulation" pkg="cade_manipulation"
+        type="manipulation_node.py" output="screen">
+    <param name="cmd_topic" value="/cade/task_cmd"/>
+    <param name="status_topic" value="/cade/task_status"/>
+    <param name="graspnet_host" value="$(arg graspnet_host)"/>
+    <param name="graspnet_port" value="$(arg graspnet_port)"/>
+    <param name="graspnet_timeout" value="$(arg graspnet_timeout)"/>
+    <param name="arm_enabled" value="$(arg arm_enabled)"/>
+  </node>
+
+</launch>

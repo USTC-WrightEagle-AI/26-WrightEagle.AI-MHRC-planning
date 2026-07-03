@@ -19,17 +19,28 @@ import queue
 
 import numpy as np
 
+
+def _package_path() -> str:
+    return rospkg.RosPack().get_path('cade_voice')
+
+
+def _add_local_sherpa_runtime() -> None:
+    runtime_path = os.path.join(_package_path(), "src")
+    if os.path.isdir(os.path.join(runtime_path, "sherpa_onnx")):
+        sys.path.insert(0, runtime_path)
+
 try:
     import sounddevice as sd
 except ImportError:
     print("Please install sounddevice first")
     sys.exit(-1)
 
-import sherpa_onnx
+_add_local_sherpa_runtime()
+import sherpa_onnx  # noqa: E402
 import wave
 
 
-pkg_path = rospkg.RosPack().get_path('asr_tts')
+pkg_path = _package_path()
 TARGET_SAMPLE_RATE = 16000
 
 

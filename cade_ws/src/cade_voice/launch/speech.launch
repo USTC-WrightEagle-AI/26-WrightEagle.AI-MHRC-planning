@@ -2,50 +2,80 @@
     <!-- Audio device parameters -->
     <arg name="mic_id" default="MEETEASY" />
     <arg name="speaker_id" default="USB2.0 Device" />
+    <arg name="provider" default="cpu" />
+    <arg name="asr_input_gain_db" default="3.0" />
+    <arg name="asr_vad_threshold" default="0.35" />
+    <arg name="asr_normalize_speech" default="true" />
+    <arg name="asr_target_rms_dbfs" default="-22.0" />
 
     <!-- ASR node type selection: only one ASR node is launched at a time -->
     <!-- Valid values:
          asr_node              - VAD + offline ASR (default, SenseVoice/Whisper/Paraformer)
+         cade_core             - cade-voice-core streaming ASR (Nemotron, fallback Zipformer)
          streaming_endpoint    - Streaming ASR with endpoint detection (Zipformer Transducer)
          vad_streaming         - VAD + streaming ASR (Zipformer, no speaker ID)
          dynamic_vad           - VAD + offline ASR + dynamic speaker registration
          dynamic_vad_streaming - VAD + streaming ASR + dynamic speaker registration
     -->
-    <arg name="asr_type" default="asr_node" doc="ASR node type to launch" />
+    <arg name="asr_type" default="cade_core" doc="ASR node type to launch" />
+    <arg name="cade_core_python" default="/home/nvidia/.conda/envs/speech310/bin/python" />
+    <arg name="cade_asr_model_type" default="streaming_nemotron" />
+    <arg name="cade_asr_model_dir" default="/home/nvidia/audio/models/asr/sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25" />
+    <arg name="cade_asr_fallback_model_type" default="streaming_zipformer" />
+    <arg name="cade_asr_fallback_model_dir" default="/home/nvidia/audio/models/asr/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17-mobile" />
+    <arg name="cade_vad_model" default="/home/nvidia/audio/models/asr/silero_vad.onnx" />
+    <arg name="cade_asr_num_threads" default="1" />
+    <arg name="asr_tts_cooldown" default="1.2" />
+    <arg name="asr_pre_roll_sec" default="0.5" />
+    <arg name="asr_post_roll_sec" default="0.5" />
 
     <!-- TTS node (always launched) -->
-    <node pkg="asr_tts" type="tts_node.py" name="tts_node" output="screen">
+    <node pkg="cade_voice" type="tts_node.py" name="tts_node" output="screen"
+          args="--provider $(arg provider) --tts-model $(find cade_voice)/models/kokoro-int8-en-v0_19/model.int8.onnx --tts-tokens $(find cade_voice)/models/kokoro-int8-en-v0_19/tokens.txt --tts-voices $(find cade_voice)/models/kokoro-int8-en-v0_19/voices.bin --tts-data-dir $(find cade_voice)/models/kokoro-int8-en-v0_19/espeak-ng-data">
         <param name="device_name" value="$(arg speaker_id)" />
         <param name="play" value="true" />
     </node>
 
     <!-- ASR node (selected by asr_type) -->
-    <group if="$(eval arg('asr_type') == 'asr_node')">
-        <node pkg="asr_tts" type="asr_node.py" name="asr_node" output="screen">
+    <group if="$(eval arg('asr_type') == 'cade_core')">
+        <node pkg="cade_voice" type="cade_core_asr_node" name="asr_node" output="screen"
+              args="--provider $(arg provider) --num-threads $(arg cade_asr_num_threads) --model-type $(arg cade_asr_model_type) --model-dir $(arg cade_asr_model_dir) --fallback-model-type $(arg cade_asr_fallback_model_type) --fallback-model-dir $(arg cade_asr_fallback_model_dir) --vad-model $(arg cade_vad_model) --tts-cooldown $(arg asr_tts_cooldown) --pre-roll-sec $(arg asr_pre_roll_sec) --post-roll-sec $(arg asr_post_roll_sec)">
+            <env name="CADE_CORE_PYTHON" value="$(arg cade_core_python)" />
             <param name="device_name" value="$(arg mic_id)" />
         </node>
     </group>
 
+    <group if="$(eval arg('asr_type') == 'asr_node')">
+        <node pkg="cade_voice" type="asr_node.py" name="asr_node" output="screen"
+              args="--provider $(arg provider) --silero-vad-model $(find cade_voice)/models/silero_vad.onnx --tokens $(find cade_voice)/models/sherpa-onnx-whisper-small.en/small.en-tokens.txt --whisper-encoder $(find cade_voice)/models/sherpa-onnx-whisper-small.en/small.en-encoder.int8.onnx --whisper-decoder $(find cade_voice)/models/sherpa-onnx-whisper-small.en/small.en-decoder.int8.onnx">
+            <param name="device_name" value="$(arg mic_id)" />
+            <param name="input_gain_db" value="$(arg asr_input_gain_db)" />
+            <param name="vad_threshold" value="$(arg asr_vad_threshold)" />
+            <param name="normalize_speech" value="$(arg asr_normalize_speech)" />
+            <param name="target_rms_dbfs" value="$(arg asr_target_rms_dbfs)" />
+        </node>
+    </group>
+
     <group if="$(eval arg('asr_type') == 'streaming_endpoint')">
-        <node pkg="asr_tts" type="streaming_asr_endpoint_node.py" name="streaming_asr_endpoint_node" output="screen">
+        <node pkg="cade_voice" type="streaming_asr_endpoint_node.py" name="streaming_asr_endpoint_node" output="screen">
             <param name="device_name" value="$(arg mic_id)" />
         </node>
     </group>
 
     <group if="$(eval arg('asr_type') == 'vad_streaming')">
-        <node pkg="asr_tts" type="vad_streaming_asr_node.py" name="vad_streaming_asr_node" output="screen">
+        <node pkg="cade_voice" type="vad_streaming_asr_node.py" name="vad_streaming_asr_node" output="screen">
             <param name="device_name" value="$(arg mic_id)" />
         </node>
     </group>
 
     <group if="$(eval arg('asr_type') == 'dynamic_vad')">
-        <node pkg="asr_tts" type="dynamic_vad_asr_node.py" name="dynamic_vad_asr_node" output="screen">
+        <node pkg="cade_voice" type="dynamic_vad_asr_node.py" name="dynamic_vad_asr_node" output="screen">
             <param name="device_name" value="$(arg mic_id)" />
         </node>
     </group>
 
     <group if="$(eval arg('asr_type') == 'dynamic_vad_streaming')">
-        <node pkg="asr_tts" type="dynamic_vad_streaming_asr_node.py" name="dynamic_vad_streaming_asr_node" output="screen">
+        <node pkg="cade_voice" type="dynamic_vad_streaming_asr_node.py" name="dynamic_vad_streaming_asr_node" output="screen">
             <param name="device_name" value="$(arg mic_id)" />
         </node>
     </group>

@@ -18,8 +18,10 @@ Brain Node - CADE 大脑主启动脚本
 
 import argparse
 import json
+import re
 import sys
 import threading
+import time
 
 try:
     import rospy
@@ -34,6 +36,29 @@ except ImportError:
 import cade_brain.skills.nav_skills  # noqa: F401 — 触发 @register_nav_tool
 import cade_brain.skills.vision_skills  # noqa: F401 — 触发 @register_vision_tool
 from cade_brain.controller import RobotController
+from cade_brain.skills import VisionHardwareContext
+
+
+ASR_TOKEN_PATTERN = re.compile(r"[a-z0-9']+")
+ASR_NOISE_ONLY_PHRASES = {
+    "a",
+    "ah",
+    "an",
+    "and",
+    "eh",
+    "er",
+    "hmm",
+    "hm",
+    "huh",
+    "mm",
+    "mmm",
+    "oh",
+    "or",
+    "so",
+    "the",
+    "uh",
+    "um",
+}
 
 
 def print_banner(config_mode, model, robot_name):
@@ -56,7 +81,9 @@ def print_banner(config_mode, model, robot_name):
     print(f"Output: ROS /tts topic")
     print(f"Task Cmd: ROS /cade/task_cmd")
     print(f"Task Status: ROS /cade/task_status")
-    print(f"Vision Detections: ROS /vision/detections_3d")
+    print(f"Vision Cmd: ROS /cade/task_cmd_task3")
+    print(f"Vision Status: ROS /cade/task_status_task3")
+    print(f"Vision Detections: ROS /vision/detections_3d_task3")
     print()
 
 
@@ -75,19 +102,29 @@ class BrainNode:
         prompt_mode: str = "default",
         show_thought: bool = True,
         environment_context: str = "",
+        max_react_loops: int = 30,
     ):
         if ROS_AVAILABLE:
             rospy.init_node("cade_brain", anonymous=True)
+            max_react_loops = int(rospy.get_param("~max_react_loops", max_react_loops))
 
         # 创建控制器（工具箱字典由装饰器自动填充，无需手动传入技能实例）
         self.controller = RobotController(
             prompt_mode=prompt_mode,
             show_thought=show_thought,
             environment_context=environment_context,
+            max_react_loops=max_react_loops,
+            live_reply_callback=self._publish_live_reply,
         )
+        if ROS_AVAILABLE:
+            VisionHardwareContext().warmup()
 
         # 状态锁
         self._state_lock = threading.Lock()
+        self._worker_active = False
+        self._pending_user_inputs = []
+        self._tts_busy_until = 0.0
+        self._last_live_reply = ""
 
         if ROS_AVAILABLE:
             # ROS 通信
@@ -101,6 +138,7 @@ class BrainNode:
             rospy.loginfo(f"  Subscribing: /asr")
             rospy.loginfo(f"  Publishing: /tts")
             rospy.loginfo(f"  Tools: {len(self.controller.skills_registry)} registered")
+            rospy.loginfo(f"  Max ReAct loops: {self.controller.max_react_loops}")
             rospy.loginfo("=" * 60)
 
         # 统计
@@ -119,15 +157,46 @@ class BrainNode:
         print(f'[ASR] Received: "{text}"')
         print(f"{'=' * 60}")
 
-        # 异步处理
+        if self._should_ignore_asr(text):
+            self.ignored_inputs += 1
+            print(f'[ASR] Ignored: "{text}"')
+            return
+
+        with self._state_lock:
+            if time.time() < self._tts_busy_until:
+                self.ignored_inputs += 1
+                print(f'[ASR] Ignored during TTS playback window: "{text}"')
+                return
+
+            if self._worker_active:
+                self._pending_user_inputs.append(text)
+                print(f'[ASR] Buffered while task is running: "{text}"')
+                return
+
+            self._worker_active = True
+
         thread = threading.Thread(
-            target=self._process_input_async, args=(text,), daemon=True
+            target=self._input_worker, args=(text,), daemon=True
         )
         thread.start()
 
-    def _process_input_async(self, text: str):
-        """异步处理用户输入"""
+    def _input_worker(self, text: str):
+        """串行处理 ASR 输入；运行中收到的短句在当前任务后合并处理。"""
+        current_text = text
+        while current_text:
+            self._process_single_input(current_text)
+            with self._state_lock:
+                if self._pending_user_inputs:
+                    current_text = self._merge_pending_inputs_locked()
+                    print(f'[ASR] Processing buffered input: "{current_text}"')
+                else:
+                    self._worker_active = False
+                    return
+
+    def _process_single_input(self, text: str):
+        """处理单条用户输入"""
         try:
+            self._last_live_reply = ""
             print(f"[LLM] Thinking...")
 
             decision = self.controller.process_input(text)
@@ -136,7 +205,8 @@ class BrainNode:
 
             print(f"[REPLY] {reply}")
 
-            self._publish_tts(reply)
+            if not self._is_duplicate_live_reply(reply):
+                self._publish_tts(reply)
             self.successful_replies += 1
 
             print(f"[DONE] Round complete, waiting for next input...\n")
@@ -149,21 +219,64 @@ class BrainNode:
 
             self._publish_tts("Sorry, I encountered a problem.")
 
+    def _merge_pending_inputs_locked(self) -> str:
+        merged = " ".join(self._pending_user_inputs)
+        self._pending_user_inputs.clear()
+        return merged
+
+    def _should_ignore_asr(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        if not normalized:
+            return True
+        if normalized.startswith("(") or normalized.endswith(")"):
+            return True
+        tokens = ASR_TOKEN_PATTERN.findall(normalized)
+        if len(tokens) == 1 and tokens[0] in ASR_NOISE_ONLY_PHRASES:
+            return True
+        noise_markers = (
+            "loud rumbling",
+            "background noise",
+            "noise",
+            "inaudible",
+            "music",
+            "static",
+        )
+        if any(marker in normalized for marker in noise_markers):
+            return True
+        return False
+
+    def _publish_live_reply(self, text: str):
+        """发布执行前的即时计划/状态回复。"""
+        self._last_live_reply = (text or "").strip()
+        if self._last_live_reply:
+            print(f"[LIVE REPLY] {self._last_live_reply}")
+            self._publish_tts(self._last_live_reply)
+
+    def _is_duplicate_live_reply(self, text: str) -> bool:
+        return bool(
+            text
+            and self._last_live_reply
+            and text.strip() == self._last_live_reply
+        )
+
     def _publish_tts(self, text: str):
         """发布 TTS 文本"""
         if not ROS_AVAILABLE:
             print(f"[TTS] (no ROS): {text}")
             return
 
+        estimated_duration = max(5.0, min(35.0, len(text) * 0.35))
+        with self._state_lock:
+            self._tts_busy_until = max(
+                self._tts_busy_until,
+                time.time() + estimated_duration,
+            )
+
         rospy.loginfo(f'[TTS] Publishing: "{text}"')
         msg = String()
         msg.data = text
         self.tts_publisher.publish(msg)
 
-        # 粗略估计语音播放时长
-        import time
-
-        estimated_duration = max(1.0, len(text) * 0.1)
         time.sleep(estimated_duration)
 
     def spin(self):
@@ -181,7 +294,7 @@ class BrainNode:
                         continue
                     if text.lower() in ("quit", "exit", "q"):
                         break
-                    self._process_input_async(text)
+                    self._process_single_input(text)
                 except KeyboardInterrupt:
                     break
 
@@ -221,8 +334,19 @@ def main():
         default="You are sitting in a Fedora lab, communicating via voice.",
         help="Environment context",
     )
+    parser.add_argument(
+        "--max-react-loops",
+        type=int,
+        default=30,
+        help="Maximum ReAct loops per user command",
+    )
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+    other_unknown = [item for item in unknown if not item.startswith("__")]
+    if other_unknown:
+        parser.error("unrecognized arguments: %s" % " ".join(other_unknown))
+
+    Config.validate_or_raise()
 
     print_banner(
         "Cloud" if Config.is_cloud_mode() else "Local",
@@ -234,6 +358,7 @@ def main():
         prompt_mode=args.mode,
         show_thought=not args.no_thought,
         environment_context=args.env,
+        max_react_loops=args.max_react_loops,
     )
 
     print("\nCADE Brain is ready, waiting for voice input...\n")

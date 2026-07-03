@@ -14,6 +14,8 @@ class BaseTask(ABC):
         "timeout",
         "room",
         "placement",
+        "vision_profile",
+        "perception_profile",
     }
 
     PERSON_ATTRIBUTE_KEYS = {
@@ -21,6 +23,7 @@ class BaseTask(ABC):
         "gesture",
         "cloth_color",
         "cloth_type",
+        "clothing",
         "identity",
         "name",
         "hair_color",

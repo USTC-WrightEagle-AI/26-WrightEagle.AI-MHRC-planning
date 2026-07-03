@@ -35,14 +35,35 @@ else
     echo "Attempting to run without workspace sourcing..."
 fi
 
-# 加载 .env
+load_env_defaults() {
+    local env_file="$1"
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" == *"="* ]] || continue
+
+        local key="${line%%=*}"
+        local value="${line#*=}"
+        key="$(printf '%s' "$key" | xargs)"
+
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        if [ -z "${!key:-}" ] && [ -n "$value" ]; then
+            export "$key=$value"
+        fi
+    done < "$env_file"
+}
+
+# 加载 .env 默认值；已存在的环境变量优先，例如外部注入的 CADE_CLOUD_API_KEY。
 if [ -f "$WS_DIR/.env" ]; then
-    export $(grep -v '^#' "$WS_DIR/.env" | xargs)
+    load_env_defaults "$WS_DIR/.env"
     echo "Loaded environment from .env"
 elif [ -f "$SCRIPT_DIR/../.env" ]; then
-    export $(grep -v '^#' "$SCRIPT_DIR/../.env" | xargs)
+    load_env_defaults "$SCRIPT_DIR/../.env"
     echo "Loaded environment from parent .env"
 fi
+
+# 当前任务要求只走 Cloud API key 通道，暂不使用本地 Ollama。
+export CADE_MODE=CLOUD
 
 MODE=${1:-full}
 
@@ -53,11 +74,15 @@ case $MODE in
         ;;
     vision)
         echo "Starting Vision Node..."
-        rosrun cade_vision open_vision_node.py \
-            --model "${CADE_YOLO_MODEL:-yolov8x-worldv2.pt}" \
-            --device "${CADE_YOLO_DEVICE:-cuda}" \
-            --conf "${CADE_YOLO_CONF:-0.25}" \
+        VISION_ARGS=(
+            --device "${CADE_YOLO_DEVICE:-cuda}"
+            --conf "${CADE_YOLO_CONF:-0.25}"
             --serial-number "${CADE_REALSENSE_SERIAL:-333422301212}"
+        )
+        if [ -n "${CADE_YOLO_MODEL:-}" ]; then
+            VISION_ARGS+=(--model "$CADE_YOLO_MODEL")
+        fi
+        rosrun cade_vision open_vision_node.py "${VISION_ARGS[@]}"
         ;;
     brain)
         echo "Starting Brain Node..."
@@ -65,6 +90,6 @@ case $MODE in
         ;;
     full|*)
         echo "Starting CADE Full System..."
-        roslaunch cade_ws cade_full.launch
+        roslaunch "$WS_DIR/launch/cade_full.launch"
         ;;
 esac

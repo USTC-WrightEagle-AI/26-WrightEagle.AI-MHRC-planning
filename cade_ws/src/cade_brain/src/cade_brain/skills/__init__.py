@@ -63,11 +63,55 @@ class HardwareContext:
             self._base = BaseSkill(node_name_prefix="hardware_ctx")
             print("[HardwareContext] ROS bridge initialized")
 
-    def execute(self, action_type: str, timeout: float = 30.0,
+    def execute(self, action_type: str, wait_timeout: float = 30.0,
                 **params: Any) -> Dict[str, Any]:
         """发布指令并等待结果（委托给 BaseSkill.execute）"""
         self._ensure_initialized()
-        return self._base.execute(action_type, timeout=timeout, **params)
+        return self._base.execute(
+            action_type,
+            wait_timeout=wait_timeout,
+            **params,
+        )
+
+
+class VisionHardwareContext:
+    """
+    Vision 专用 ROS 桥接器。
+
+    cade_vision task3 使用独立 topic，不能复用导航/通用硬件通道。
+    """
+
+    _instance: "VisionHardwareContext | None" = None
+
+    def __new__(cls) -> "VisionHardwareContext":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._base = None
+        return cls._instance
+
+    def _ensure_initialized(self) -> None:
+        if self._base is None:
+            from cade_brain.skills.base_skill import BaseSkill
+            self._base = BaseSkill(
+                node_name_prefix="vision_hardware_ctx",
+                cmd_topic="/cade/task_cmd_task3",
+                status_topic="/cade/task_status_task3",
+            )
+            print("[VisionHardwareContext] ROS bridge initialized")
+
+    def warmup(self) -> None:
+        """Create ROS pub/sub handles before the first vision action."""
+        self._ensure_initialized()
+
+    def execute(self, action_type: str, wait_timeout: float = 30.0,
+                **params: Any) -> Dict[str, Any]:
+        """发布视觉指令并等待 cade_vision task3 返回状态。"""
+        self._ensure_initialized()
+        return self._base.execute(
+            action_type,
+            wait_timeout=wait_timeout,
+            **params,
+        )
 
 
 # ── 导入技能模块以触发装饰器注册 ──────────────────────────────
