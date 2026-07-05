@@ -44,34 +44,11 @@ VISION_CMD_FIND_HOST = "寻找host"
 VISION_CMD_TRACK_PERSON = "跟踪人物"
 
 # ============================================================
-# 操作 (手臂/夹爪/托盘)
-# ============================================================
-MANIP_COMMAND_TOPIC = "/manipulation/command"
-MANIP_RESULT_TOPIC = "/manipulation/result"
-MANIP_TIMEOUT = 30.0
-
-MANIP_CMD_POINT_SEAT = "指向空座"
-MANIP_CMD_WAIT_FOR_BAG = "等待放包"
-MANIP_CMD_PLACE_BAG = "放包到指定位置"
-
-# ============================================================
-# 说话人识别 + 声源定位
-# ============================================================
-SPEAKER_DOA_ENROLL_TOPIC = "/speaker_doa/enroll"
-SPEAKER_DOA_COMMAND_TOPIC = "/speaker_doa/command"
-SPEAKER_DOA_RESULT_TOPIC = "/speaker_doa/result"
-SPEAKER_DOA_TIMEOUT = 30.0
-SPEAKER_DOA_FACE_TIMEOUT = 10.0
-
-SPEAKER_DOA_CMD_LOCATE = "声源定位"
-SPEAKER_DOA_CMD_TRACK = "声源跟踪"
-SPEAKER_DOA_CMD_FACE_SPEAKER = "面向说话人"
-
-# ============================================================
 # 语音 (TTS + ASR)
 # ============================================================
 TTS_TOPIC = "/tts"
 ASR_TOPIC = "/asr"
+ASR_SEGMENT_TOPIC = "/asr/segment"
 TTS_PLAYING_TOPIC = "/tts/playing"
 
 # ============================================================

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PYTHON_BIN="${CADE_CORE_PYTHON:-/home/nvidia/.conda/envs/speech310/bin/python}"
+SCRIPT_PATH="$(rospack find asr_tts)/scripts/cade_core_asr_node.py"
+
+exec "$PYTHON_BIN" "$SCRIPT_PATH" "$@"

@@ -25,6 +25,11 @@ dist/
 *.log
 logs/
 
+# 视觉运行输出和本地模型权重
+task1_receptionist/object_search/latest_*.json
+task1_receptionist/object_search/latest_*.log
+task1_receptionist/object_search/*.pt
+
 # 测试
 .pytest_cache/
 .coverage
@@ -43,4 +48,3 @@ logs/
 
 # 启动脚本
 start_all.sh
-

@@ -334,7 +334,7 @@ class ROSLLMInterface(LLMInterface):
     def __init__(self,
                  request_topic: str = LLM_REQUEST_TOPIC,
                  response_topic: str = LLM_RESPONSE_TOPIC,
-                 timeout_sec: float = 30.0):
+                 timeout_sec: Optional[float] = None):
         import rospy
         from std_msgs.msg import String
 
@@ -386,7 +386,7 @@ class ROSLLMInterface(LLMInterface):
 
         Raises:
             RuntimeError: LLM 返回错误
-            TimeoutError: 请求超时
+            TimeoutError: 设置 timeout_sec 时请求超时
         """
         req_id = str(uuid.uuid4())
         payload = {
@@ -403,7 +403,11 @@ class ROSLLMInterface(LLMInterface):
         self._pub_request.publish(self._String(data=json.dumps(payload)))
 
         try:
-            result = q.get(timeout=self._timeout)
+            if self._timeout is None:
+                print("  🧠 [LLM-ROS] 阻塞等待 LLM 响应...")
+                result = q.get()
+            else:
+                result = q.get(timeout=self._timeout)
             if result.get("status") == "error":
                 raise RuntimeError(f"LLM 返回错误: {result.get('error', 'unknown')}")
             return result.get("text", "")

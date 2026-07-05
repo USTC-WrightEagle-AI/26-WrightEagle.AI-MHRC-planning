@@ -27,8 +27,8 @@ Speaker DOA Node — 说话人识别 + 声源定位 ROS 节点
 
 Task1 使用方式:
   1. 启动本节点 (随 speech.launch)
-  2. ASK_GUEST1_INFO 完成后 → /speaker_doa/enroll {"command":"enroll","speaker_name":"guest1","duration":5.0}
-  3. PICK_UP_GUEST2 完成后 → /speaker_doa/enroll {"command":"enroll","speaker_name":"guest2","duration":5.0}
+  2. ASK_GUEST1_INFO 姓名 ASR 成功后 → /speaker_doa/enroll {"command":"enroll_asr_segment","speaker_name":"guest1","wav_path":"..."}
+  3. PICK_UP_GUEST2 姓名 ASR 成功后 → /speaker_doa/enroll {"command":"enroll_asr_segment","speaker_name":"guest2","wav_path":"..."}
   4. FIND_HOST 阶段 → 订阅 /speaker_doa/result, 用 angle_deg 导航; 找到 host 后录入
   5. 之后任何阶段都能通过 /speaker_doa/result 确认当前说话人身份
 """
@@ -153,6 +153,15 @@ class SpeakerDOANode:
             speaker_name = cmd.get("speaker_name", None)
             self._enroll_queue.put({"type": "enroll", "duration": duration, "speaker_name": speaker_name})
             rospy.loginfo(f"[SpeakerDOA] 收到录入指令: name={speaker_name}, duration={duration}s")
+        elif command == "enroll_asr_segment":
+            wav_path = cmd.get("wav_path", "")
+            speaker_name = cmd.get("speaker_name", None)
+            self._enroll_queue.put({
+                "type": "enroll_asr_segment",
+                "wav_path": wav_path,
+                "speaker_name": speaker_name,
+            })
+            rospy.loginfo(f"[SpeakerDOA] 收到 ASR 片段录入指令: name={speaker_name}, wav={wav_path}")
         elif command == "forget_all":
             self._enroll_queue.put({"type": "forget_all"})
             rospy.loginfo("[SpeakerDOA] 收到清除指令 — 清空说话人库")
@@ -181,6 +190,8 @@ class SpeakerDOANode:
                     task = self._enroll_queue.get_nowait()
                     if task["type"] == "enroll":
                         self._do_enroll(task["duration"], task.get("speaker_name"))
+                    elif task["type"] == "enroll_asr_segment":
+                        self._do_enroll_asr_segment(task["wav_path"], task.get("speaker_name"))
                     elif task["type"] == "forget_all":
                         self._do_forget_all()
                 except queue.Empty:
@@ -286,7 +297,23 @@ class SpeakerDOANode:
             self._publish({"status": "error", "mode": "enroll", "detail": str(exc)})
             return
 
-        speech_check = self.mgr.detect_speech(paths["iat_wav"], min_speech_seconds=self.min_enroll_speech)
+        self._enroll_wav(paths["iat_wav"], speaker_name)
+
+    def _do_enroll_asr_segment(self, wav_path: str, speaker_name=None):
+        self._publish({"status": "enrolling_asr_segment", "speaker_name": speaker_name, "wav_path": wav_path})
+        if not wav_path or not os.path.isfile(wav_path):
+            self._publish({
+                "status": "error",
+                "mode": "enroll_asr_segment",
+                "detail": f"ASR 音频片段不存在: {wav_path}",
+            })
+            return
+        self._enroll_wav(wav_path, speaker_name, min_speech_seconds=self.min_detect_speech)
+
+    def _enroll_wav(self, wav_path: str, speaker_name=None, min_speech_seconds=None):
+        if min_speech_seconds is None:
+            min_speech_seconds = self.min_enroll_speech
+        speech_check = self.mgr.detect_speech(wav_path, min_speech_seconds=min_speech_seconds)
 
         if not speech_check["speech_like"]:
             self._publish({
@@ -297,7 +324,7 @@ class SpeakerDOANode:
             return
 
         try:
-            res = self.mgr.enroll(paths["iat_wav"])
+            res = self.mgr.enroll(wav_path)
         except Exception as exc:
             self._publish({"status": "error", "mode": "enroll", "detail": str(exc)})
             return

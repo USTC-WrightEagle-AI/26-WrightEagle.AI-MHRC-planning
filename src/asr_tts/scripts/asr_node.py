@@ -10,6 +10,7 @@ SenseVoice/Whisper/Paraformer/Transducer 模型进行离线语音识别。
 回声消除: 订阅 /tts/playing 话题, TTS 播放期间及冷却期内丢弃识别结果。
 """
 
+import json
 import re
 import wave
 import time
@@ -30,9 +31,11 @@ pkg_path = rospkg.RosPack().get_path('asr_tts')
 
 WHISPER_MODEL_DIR = os.path.join(pkg_path, "models/sherpa-onnx-whisper-small.en")
 
-TTS_COOLDOWN = 3.0
+DEFAULT_TTS_COOLDOWN = 0.8
+DEFAULT_VAD_MIN_SILENCE_DURATION = 0.8
 
-NON_SPEECH_PATTERN = re.compile(r'^\([^)]*\)$|^\[.*\]$')
+# Whisper may emit incomplete markers such as "[blank_" when decoding noise.
+NON_SPEECH_PATTERN = re.compile(r'^(?:\([^)]*\)?|\[[^\]]*\]?|<[^>]*>?)$')
 
 
 # ============================================================
@@ -77,7 +80,7 @@ def get_args():
                         help="Path to tokens.txt")
     parser.add_argument("--num-threads", type=int, default=2,
                         help="Number of threads for neural network computation")
-    parser.add_argument("--provider", type=str, default="cuda",
+    parser.add_argument("--provider", type=str, default="cpu",
                         choices=["cpu", "cuda", "coreml"],
                         help="Inference provider")
     parser.add_argument("--sample-rate", type=int, default=16000,
@@ -97,6 +100,11 @@ def get_args():
     parser.add_argument("--save-audio", type=str,
                         default=os.path.join(pkg_path, "recordings"),
                         help="Folder path to save recorded audio segments")
+    parser.add_argument("--tts-cooldown", type=float, default=DEFAULT_TTS_COOLDOWN,
+                        help="Seconds after TTS becomes idle to suppress echo")
+    parser.add_argument("--vad-min-silence-duration", type=float,
+                        default=DEFAULT_VAD_MIN_SILENCE_DURATION,
+                        help="Silence duration in seconds before VAD closes one speech segment")
 
     # --- Transducer ---
     parser.add_argument("--encoder", default="", type=str,
@@ -244,6 +252,7 @@ class ASRNode:
     def __init__(self, node_name: str = "asr_node"):
         rospy.init_node(node_name)
         self._pub_asr = rospy.Publisher("asr", String, queue_size=10)
+        self._pub_asr_segment = rospy.Publisher("/asr/segment", String, queue_size=10)
 
         self._recognizer = None
         self._vad = None
@@ -257,6 +266,8 @@ class ASRNode:
 
         self._tts_playing = False
         self._tts_stop_time = 0.0
+        self._tts_cooldown_sec = DEFAULT_TTS_COOLDOWN
+        self._vad_min_silence_duration = DEFAULT_VAD_MIN_SILENCE_DURATION
 
         self._save_folder: Optional[Path] = None
         self._all_samples: Optional[List[np.ndarray]] = None
@@ -271,10 +282,17 @@ class ASRNode:
         assert args.num_threads > 0, args.num_threads
 
         self._sample_rate = args.sample_rate
+        self._tts_cooldown_sec = max(0.0, float(args.tts_cooldown))
+        self._vad_min_silence_duration = max(0.1, float(args.vad_min_silence_duration))
 
         rospy.loginfo(f"[ASR] 采样率: {self._sample_rate} Hz")
         rospy.loginfo(f"[ASR] 模型参数: threads={args.num_threads}, provider={args.provider}")
         rospy.loginfo(f"[ASR] Whisper 语言: {args.whisper_language}, 任务: {args.whisper_task}")
+        rospy.loginfo(
+            "[ASR] VAD/TTS 参数: min_silence=%.2fs, tts_cooldown=%.2fs",
+            self._vad_min_silence_duration,
+            self._tts_cooldown_sec,
+        )
 
         rospy.loginfo("[ASR] 正在加载识别模型, 请稍候...")
         self._recognizer = create_recognizer(args)
@@ -282,7 +300,7 @@ class ASRNode:
 
         config = sherpa_onnx.VadModelConfig()
         config.silero_vad.model = args.silero_vad_model
-        config.silero_vad.min_silence_duration = 0.25
+        config.silero_vad.min_silence_duration = self._vad_min_silence_duration
         config.sample_rate = self._sample_rate
 
         self._window_size = config.silero_vad.window_size
@@ -298,7 +316,7 @@ class ASRNode:
 
     def _init_subscribers(self):
         rospy.Subscriber("/tts/playing", String, self._on_tts_status, queue_size=10)
-        rospy.loginfo(f"[ASR] 已订阅 /tts/playing 话题 (回声消除, 冷却期={TTS_COOLDOWN}s)")
+        rospy.loginfo(f"[ASR] 已订阅 /tts/playing 话题 (回声消除, 冷却期={self._tts_cooldown_sec}s)")
 
         rospy.Subscriber("/audio/raw", Float32MultiArray, self._on_audio, queue_size=20)
         rospy.loginfo("[ASR] 已订阅 /audio/raw 话题")
@@ -323,9 +341,21 @@ class ASRNode:
     def _is_echo(self) -> bool:
         if self._tts_playing:
             return True
-        if self._tts_stop_time > 0 and (time.time() - self._tts_stop_time) < TTS_COOLDOWN:
+        if self._tts_stop_time > 0 and (time.time() - self._tts_stop_time) < self._tts_cooldown_sec:
             return True
         return False
+
+    def _drop_echo_segment(self, speech_samples: np.ndarray):
+        duration = len(speech_samples) / float(self._sample_rate)
+        elapsed = time.time() - self._tts_stop_time if self._tts_stop_time > 0 else -1.0
+        rospy.loginfo(
+            "[ASR] 丢弃 TTS/冷却期内片段: duration=%.2fs, playing=%s, "
+            "after_tts_idle=%.2fs, cooldown=%.2fs",
+            duration,
+            self._tts_playing,
+            elapsed,
+            self._tts_cooldown_sec,
+        )
 
     # ---- VAD 处理 ----
 
@@ -360,15 +390,23 @@ class ASRNode:
         self._texts.append(text)
         rospy.loginfo(f"[ASR] 识别结果: '{text}'")
 
+        self._segment_count += 1
+        save_folder = self._save_folder or Path("/tmp/asr_segments")
+        save_folder.mkdir(parents=True, exist_ok=True)
+        path = save_folder / f"{self._base_name}-{self._segment_count}.wav"
+        save_wav(path, speech_samples, self._sample_rate)
+        rospy.loginfo(f"[ASR] 音频段已保存: {path}")
+
+        segment = {
+            "text": text,
+            "wav_path": str(path.resolve()),
+            "sample_rate": self._sample_rate,
+        }
+        self._pub_asr_segment.publish(String(data=json.dumps(segment, ensure_ascii=False)))
+
         msg = String()
         msg.data = text
         self._pub_asr.publish(msg)
-
-        if self._save_folder:
-            self._segment_count += 1
-            path = self._save_folder / f"{self._base_name}-{self._segment_count}.wav"
-            save_wav(path, speech_samples, self._sample_rate)
-            rospy.loginfo(f"[ASR] 音频段已保存: {path}")
 
     # ---- 主循环 ----
 
@@ -396,7 +434,7 @@ class ASRNode:
                     continue
 
                 if self._is_echo():
-                    self._speech_segments.pop(0)
+                    self._drop_echo_segment(self._speech_segments.pop(0))
                     continue
 
                 speech_samples = self._speech_segments.pop(0)

@@ -4,6 +4,7 @@
 # Core dependencies
 sherpa-onnx
 numpy
+python-dotenv
 
 # Audio I/O
 sounddevice

@@ -8,7 +8,6 @@ from task1_receptionist.sub_modules.base_module import (
     ASRModule,
     VisionModule,
     ManipulationModule,
-    SpeakerDOAModule,
 )
 from task1_receptionist.sub_modules.speech_interaction import (
     SpeechInterface,
@@ -35,7 +34,6 @@ __all__ = [
     "ASRModule",
     "VisionModule",
     "ManipulationModule",
-    "SpeakerDOAModule",
     # 语音交互接口
     "SpeechInterface",
     "MockSpeechInterface",

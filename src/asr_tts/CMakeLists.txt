@@ -212,3 +212,8 @@ catkin_install_python(PROGRAMS
   scripts/tts_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
+
+install(PROGRAMS
+  scripts/cade_core_asr_node
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)

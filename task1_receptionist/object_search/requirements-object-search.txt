@@ -1,0 +1,13 @@
+# Additional packages for object_search.py.
+# Install with --no-deps to preserve the Jetson-specific torch and OpenCV builds
+# already present in the task1 environment.
+ultralytics==8.3.226
+pillow==10.4.0
+matplotlib==3.7.5
+contourpy==1.1.1
+cycler==0.12.1
+fonttools==4.57.0
+kiwisolver==1.4.7
+psutil==7.2.2
+polars==1.8.2
+ultralytics-thop==2.0.19

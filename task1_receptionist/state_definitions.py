@@ -4,7 +4,7 @@ Task1 — Receptionist 状态定义
 RoboCup@Home 接待任务：机器人迎接两位客人，引导入座、介绍、拿包并跟随host放包。
 
 =============================================================
-状态机流程 (14 个执行状态)
+状态机流程 (15 个主流程执行状态；状态 9 保留兼容但默认跳过)
 =============================================================
 
 IDLE
@@ -16,13 +16,13 @@ IDLE
 [2] GO_TO_DOOR ───────── 机器人移动到门口
   │
   ▼
-[3] ASK_GUEST1_INFO ──── 询问 guest1 姓名和想喝的饮料
-  │                       产出: guest1_name, guest1_drink
+[3] ASK_GUEST1_INFO ──── 询问 guest1 姓名和想喝的饮料，并缓存外貌特征
+  │                       产出: guest1_name, guest1_drink, guest1_appearance
   ▼
 [4] GUIDE_GUEST1 ─────── 带领 guest1 到客厅
   │
   ▼
-[5] POINT_EMPTY_SEAT ─── 指向预设空座，请 guest1 入座
+[5] POINT_EMPTY_SEAT ─── 识别最近空座，导航到面向空座 1.5 米处并指向
   │
   ▼
 [6] RETURN_TO_START ──── 返回起点
@@ -31,19 +31,19 @@ IDLE
 [7] WAIT_FOR_DOORBELL_2 ─ 等待门铃声 (guest2 到达)
   │
   ▼
-[8] PICK_UP_GUEST2 ───── 到门口接 guest2
+[8] PICK_UP_GUEST2 ───── 到门口接 guest2，询问姓名和饮料，并缓存外貌特征
   │
   ▼
-[9] DESCRIBE_GUEST1 ──── 向 guest2 描述 guest1 的外貌/衣着
-  │                       需要: guest1_name
-  ▼
-[10] SEAT_GUEST2 ──────── 带领 guest2 到客厅入座
+[9] DESCRIBE_GUEST1 ──── 保留兼容；主流程跳过
   │
   ▼
-[11] INTRODUCE_GUESTS ─── 相互介绍两位客人
-  │                       需要: guest1_name, guest2_name
+[10] SEAT_GUEST2 ──────── 带领 guest2 到客厅，途中描述 guest1 外貌，接近空座并指向
+  │
   ▼
-[12] REQUEST_GUEST2_BAG ─ 请求 guest2 把包放到机器人托盘上
+[11] INTRODUCE_GUESTS ─── 相互介绍两位客人，说话前按衣着识别并面向对应客人
+  │                       需要: guest1_name/drink/appearance, guest2_name/drink/appearance
+  ▼
+[12] REQUEST_GUEST2_BAG ─ 请求 guest2 递包，导航到 0.7 米接近点后接包
   │
   ▼
 [13] FIND_HOST ────────── 找到 host
@@ -158,16 +158,16 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="机器人移动到门口接客位置",
         next_state=Task1StateID.ASK_GUEST1_INFO,
         data_produced=["robot_at_door"],
-        timeout_sec=30.0,
+        timeout_sec=120.0,
     ),
 
     # ── [3] 询问 guest1 ──
     Task1StateID.ASK_GUEST1_INFO: StateDefinition(
         state_id=Task1StateID.ASK_GUEST1_INFO,
         index=3,
-        description="询问第一位客人的姓名和想喝的饮料",
+        description="询问第一位客人的姓名和想喝的饮料，并顺便缓存外貌特征",
         next_state=Task1StateID.GUIDE_GUEST1,
-        data_produced=["guest1_name", "guest1_drink"],
+        data_produced=["guest1_name", "guest1_drink", "guest1_appearance"],
         timeout_sec=30.0,
         retry_on_failure=2,
     ),
@@ -179,17 +179,23 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         description="带领 guest1 前往客厅",
         next_state=Task1StateID.POINT_EMPTY_SEAT,
         data_needed=["guest1_name"],
-        timeout_sec=30.0,
+        data_produced=["guest1_in_living_room"],
+        timeout_sec=120.0,
     ),
 
-    # ── [5] 指向空座 ──
+    # ── [5] 接近并指向空座 ──
     Task1StateID.POINT_EMPTY_SEAT: StateDefinition(
         state_id=Task1StateID.POINT_EMPTY_SEAT,
         index=5,
-        description="指向预设空座位，请 guest1 入座",
+        description="识别最近空座，导航到面向空座 1.5 米处，并指向空座请 guest1 入座",
         next_state=Task1StateID.RETURN_TO_START,
         data_needed=["guest1_name"],
-        timeout_sec=30.0,
+        data_produced=[
+            "empty_seat_approach_reached",
+            "seat_pointed",
+            "guest1_seat_map_xyz",
+        ],
+        timeout_sec=180.0,
     ),
 
     # ── [6] 返回起点 ──
@@ -198,7 +204,8 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
         index=6,
         description="返回起点位置，准备接第二位客人",
         next_state=Task1StateID.WAIT_FOR_DOORBELL_2,
-        timeout_sec=30.0,
+        data_produced=["robot_at_start"],
+        timeout_sec=120.0,
     ),
 
     # ── [7] 等待门铃 2 ──
@@ -215,19 +222,19 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
     Task1StateID.PICK_UP_GUEST2: StateDefinition(
         state_id=Task1StateID.PICK_UP_GUEST2,
         index=8,
-        description="到门口迎接第二位客人，询问姓名",
-        next_state=Task1StateID.DESCRIBE_GUEST1,
-        data_produced=["guest2_at_door", "guest2_name"],
-        timeout_sec=30.0,
+        description="到门口迎接第二位客人，询问姓名和饮料偏好，并缓存外貌特征",
+        next_state=Task1StateID.SEAT_GUEST2,
+        data_produced=["guest2_at_door", "guest2_name", "guest2_drink", "guest2_appearance"],
+        timeout_sec=120.0,
     ),
 
     # ── [9] 描述 guest1 ──
     Task1StateID.DESCRIBE_GUEST1: StateDefinition(
         state_id=Task1StateID.DESCRIBE_GUEST1,
         index=9,
-        description="向 guest2 描述 guest1 的外貌特征（衣服颜色、位置等）",
+        description="保留兼容的 guest1 外貌描述状态；主流程已跳过，描述并入 SEAT_GUEST2",
         next_state=Task1StateID.SEAT_GUEST2,
-        data_needed=["guest1_name"],
+        data_needed=["guest1_name", "guest1_appearance"],
         timeout_sec=30.0,
     ),
 
@@ -235,32 +242,46 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
     Task1StateID.SEAT_GUEST2: StateDefinition(
         state_id=Task1StateID.SEAT_GUEST2,
         index=10,
-        description="带领 guest2 到客厅，询问饮料偏好，安排入座",
+        description="带领 guest2 到客厅，启动导航后描述 guest1 外貌，再识别最近空座并导航到面向空座 1.5 米处，最后清晰指向空座安排入座",
         next_state=Task1StateID.INTRODUCE_GUESTS,
-        data_needed=["guest2_name"],
-        data_produced=["guest2_seated", "guest2_drink", "seat_number"],
-        timeout_sec=30.0,
+        data_needed=["guest1_name", "guest1_appearance", "guest2_name"],
+        data_produced=[
+            "guest2_seated",
+            "seat_number",
+            "guest2_empty_seat_approach_reached",
+            "guest2_seat_pointed",
+            "guest2_seat_map_xyz",
+        ],
+        timeout_sec=180.0,
     ),
 
     # ── [11] 介绍两位客人 ──
     Task1StateID.INTRODUCE_GUESTS: StateDefinition(
         state_id=Task1StateID.INTRODUCE_GUESTS,
         index=11,
-        description="向两位客人相互介绍彼此的姓名和饮料偏好",
+        description="向两位客人相互介绍彼此的姓名和饮料偏好；说话前根据衣着识别并面向对应客人，停止视觉跟随后再播报",
         next_state=Task1StateID.REQUEST_GUEST2_BAG,
-        data_needed=["guest1_name", "guest1_drink", "guest2_name", "guest2_drink"],
-        timeout_sec=30.0,
+        data_needed=[
+            "guest1_name",
+            "guest1_drink",
+            "guest1_appearance",
+            "guest2_name",
+            "guest2_drink",
+            "guest2_appearance",
+        ],
+        data_produced=["guests_introduced"],
+        timeout_sec=60.0,
     ),
 
-    # ── [12] 请求 guest2 放包 ──
+    # ── [12] 请求 guest2 递包 ──
     Task1StateID.REQUEST_GUEST2_BAG: StateDefinition(
         state_id=Task1StateID.REQUEST_GUEST2_BAG,
         index=12,
-        description="请求 guest2 将随身包放到机器人托盘上",
+        description="请求 guest2 将随身包递给机器人，识别接包目标并导航到 0.7 米接近点后由左臂接包",
         next_state=Task1StateID.FIND_HOST,
         data_needed=["guest2_name"],
-        data_produced=["bag_on_tray"],
-        timeout_sec=30.0,
+        data_produced=["handover_approach_reached", "bag_on_tray"],
+        timeout_sec=180.0,
         retry_on_failure=1,
     ),
 
@@ -268,31 +289,32 @@ TASK1_STATES: Dict[Task1StateID, StateDefinition] = {
     Task1StateID.FIND_HOST: StateDefinition(
         state_id=Task1StateID.FIND_HOST,
         index=13,
-        description="在环境中寻找 host",
+        description="导航到 host 交互点，请 host 站到前方并确认前方人物",
         next_state=Task1StateID.FOLLOW_HOST,
-        data_produced=["host_found", "host_location"],
-        timeout_sec=30.0,
-        retry_on_failure=2,
+        data_produced=["host_interaction_reached", "host_found", "host_location"],
+        timeout_sec=90.0,
+        retry_on_failure=0,
     ),
 
     # ── [14] 跟随 host ──
     Task1StateID.FOLLOW_HOST: StateDefinition(
         state_id=Task1StateID.FOLLOW_HOST,
         index=14,
-        description="跟随 host 走到指定位置",
+        description="告知 host 已准备好，视觉跟随 host 到指定位置并等待自然停止信号",
         next_state=Task1StateID.PLACE_BAG,
-        data_needed=["host_found"],
-        timeout_sec=30.0,
+        data_needed=[],
+        data_produced=["host_guidance_requested", "nav_at_destination"],
+        timeout_sec=180.0,
     ),
 
-    # ── [15] 放包 ──
+    # ── [15] 交包 ──
     Task1StateID.PLACE_BAG: StateDefinition(
         state_id=Task1StateID.PLACE_BAG,
         index=15,
-        description="将托盘上的包放到 host 指定的位置",
+        description="到达指定位置后，将机器人接到的包交给 host",
         next_state=Task1StateID.TASK_COMPLETE,
         data_needed=["bag_on_tray"],
-        data_produced=["bag_placed"],
+        data_produced=["host_handoff_announced", "bag_placed"],
         timeout_sec=30.0,
     ),
 
